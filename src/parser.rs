@@ -3,7 +3,10 @@ use std::sync::Arc;
 use miette::NamedSource;
 
 use crate::{
-    ast::{Block, Expr, Function, Item, LoopKind, Param, Program, Stmt, Type, UnaryOp},
+    ast::{
+        Block, Expr, Function, Item, LoopKind, MatchArm, MatchPattern, Param, Program, Stmt, Type,
+        UnaryOp,
+    },
     error::AlacoError,
     language::BinaryOp,
     token::{Token, TokenKind},
@@ -131,6 +134,7 @@ impl Parser {
             }
             TokenKind::Loop => self.parse_loop_statement(),
             TokenKind::If => self.parse_if_statement(),
+            TokenKind::Match => self.parse_match_statement(),
             _ => {
                 let expression = self.parse_expression()?;
                 Ok(Stmt::Expr(expression))
@@ -215,6 +219,98 @@ impl Parser {
             then_block,
             else_block,
         })
+    }
+
+    fn parse_match_statement(&mut self) -> Result<Stmt, AlacoError> {
+        self.consume(&TokenKind::Match, "expected 'match'")?;
+
+        let expression = self.parse_expression()?;
+
+        self.skip_newlines();
+
+        self.consume(&TokenKind::LeftBrace, "expected '{' after match expression")?;
+
+        self.skip_newlines();
+
+        let mut arms = Vec::new();
+
+        while !self.check(&TokenKind::RightBrace) && !self.is_at_end() {
+            let pattern = self.parse_match_pattern()?;
+
+            self.consume(&TokenKind::Arrow, "expected '=>' after match pattern")?;
+
+            self.skip_newlines();
+
+            let body = if self.check(&TokenKind::LeftBrace) {
+                // Full block form:
+                //
+                // 0 => {
+                //     print("zero")
+                // }
+                self.parse_block()?
+            } else {
+                // Compact form:
+                //
+                // 0 => print("zero")
+                let statement = self.parse_statement()?;
+
+                self.consume_statement_end()?;
+                self.skip_newlines();
+
+                Block {
+                    statements: vec![statement],
+                }
+            };
+
+            arms.push(MatchArm { pattern, body });
+
+            self.skip_newlines();
+        }
+
+        self.consume(&TokenKind::RightBrace, "expected '}' after match arms")?;
+
+        Ok(Stmt::Match { expression, arms })
+    }
+
+    fn parse_match_pattern(&mut self) -> Result<MatchPattern, AlacoError> {
+        match self.peek().kind.clone() {
+            TokenKind::Integer(value) => {
+                self.advance();
+                Ok(MatchPattern::Number(value.to_string()))
+            }
+
+            TokenKind::Float(value) => {
+                self.advance();
+                Ok(MatchPattern::Number(value.to_string()))
+            }
+
+            TokenKind::String(value) => {
+                self.advance();
+                Ok(MatchPattern::String(value))
+            }
+
+            TokenKind::True => {
+                self.advance();
+                Ok(MatchPattern::Bool(true))
+            }
+
+            TokenKind::False => {
+                self.advance();
+                Ok(MatchPattern::Bool(false))
+            }
+
+            TokenKind::Identifier(name) => {
+                self.advance();
+
+                if name == "_" {
+                    Ok(MatchPattern::Wildcard)
+                } else {
+                    Ok(MatchPattern::Identifier(name))
+                }
+            }
+
+            _ => Err(self.error("expected match pattern")),
+        }
     }
 
     fn parse_loop_statement(&mut self) -> Result<Stmt, AlacoError> {
@@ -504,10 +600,12 @@ impl Parser {
             return Ok(());
         }
 
-        if self.check(&TokenKind::Newline)
-            || self.check(&TokenKind::RightBrace)
-            || self.check(&TokenKind::Eof)
-        {
+        if self.matches(&TokenKind::Newline) {
+            self.skip_newlines();
+            return Ok(());
+        }
+
+        if self.check(&TokenKind::RightBrace) || self.check(&TokenKind::Eof) {
             return Ok(());
         }
 

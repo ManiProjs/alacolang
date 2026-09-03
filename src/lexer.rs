@@ -104,6 +104,8 @@ impl<'a> Lexer<'a> {
             '=' => {
                 if self.match_char('=') {
                     self.add_token(TokenKind::EqualEqual);
+                } else if self.match_char('>') {
+                    self.add_token(TokenKind::Arrow);
                 } else {
                     self.add_token(TokenKind::Equal);
                 }
@@ -340,6 +342,7 @@ impl<'a> Lexer<'a> {
             "else" => TokenKind::Else,
             "true" => TokenKind::True,
             "false" => TokenKind::False,
+            "match" => TokenKind::Match,
             _ => TokenKind::Identifier(text.to_string()),
         };
 

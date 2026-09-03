@@ -18,6 +18,7 @@ pub enum TokenKind {
     Else,
     True,
     False,
+    Match,
 
     // Identifiers and literals
     Identifier(String),

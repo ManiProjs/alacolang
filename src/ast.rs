@@ -31,6 +31,21 @@ pub struct Block {
 }
 
 #[derive(Debug, Clone)]
+pub struct MatchArm {
+    pub pattern: MatchPattern,
+    pub body: Block,
+}
+
+#[derive(Debug, Clone)]
+pub enum MatchPattern {
+    Number(String),
+    String(String),
+    Bool(bool),
+    Identifier(String),
+    Wildcard,
+}
+
+#[derive(Debug, Clone)]
 pub enum Stmt {
     Let {
         name: String,
@@ -58,6 +73,11 @@ pub enum Stmt {
     },
 
     Expr(Expr),
+
+    Match {
+        expression: Expr,
+        arms: Vec<MatchArm>,
+    },
 }
 
 #[derive(Debug, Clone)]

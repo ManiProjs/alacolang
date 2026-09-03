@@ -201,6 +201,14 @@ impl Analyzer {
             Stmt::Expr(expression) => {
                 Self::analyze_expression(expression, scopes)?;
             }
+
+            Stmt::Match { expression, arms } => {
+                Self::analyze_expression(expression, scopes)?;
+
+                for arm in arms {
+                    Self::analyze_block(&arm.body, scopes, loop_depth)?;
+                }
+            }
         }
 
         Ok(())

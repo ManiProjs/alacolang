@@ -167,6 +167,10 @@ impl CppGenerator {
             } => {
                 self.loop_statement(kind, binding.as_deref(), body);
             }
+
+            Stmt::Match { expression, arms } => {
+                self.match_statement(expression, arms);
+            }
         }
     }
 
@@ -230,6 +234,78 @@ impl CppGenerator {
                 self.indent -= 1;
 
                 self.line("}");
+            }
+        }
+    }
+
+    fn match_statement(&mut self, expression: &Expr, arms: &[MatchArm]) {
+        let expression = self.expression(expression);
+
+        for (index, arm) in arms.iter().enumerate() {
+            match &arm.pattern {
+                MatchPattern::Wildcard => {
+                    self.line("else {");
+
+                    self.indent += 1;
+                    self.block(&arm.body);
+                    self.indent -= 1;
+
+                    self.line("}");
+
+                    // A wildcard catches everything, so later arms
+                    // can never be reached.
+                    break;
+                }
+
+                MatchPattern::Identifier(name) => {
+                    if index == 0 {
+                        self.line("{");
+                    } else {
+                        self.line("else {");
+                    }
+
+                    self.indent += 1;
+
+                    self.line(&format!("auto {} = {};", name, expression));
+
+                    self.block(&arm.body);
+
+                    self.indent -= 1;
+                    self.line("}");
+
+                    // An identifier pattern catches everything.
+                    break;
+                }
+
+                pattern => {
+                    let condition = match pattern {
+                        MatchPattern::Number(value) => {
+                            format!("{} == {}", expression, value)
+                        }
+
+                        MatchPattern::String(value) => {
+                            format!("{} == \"{}\"", expression, escape_cpp(value))
+                        }
+
+                        MatchPattern::Bool(value) => {
+                            format!("{} == {}", expression, value)
+                        }
+
+                        MatchPattern::Wildcard | MatchPattern::Identifier(_) => unreachable!(),
+                    };
+
+                    if index == 0 {
+                        self.line(&format!("if ({condition}) {{"));
+                    } else {
+                        self.line(&format!("else if ({condition}) {{"));
+                    }
+
+                    self.indent += 1;
+                    self.block(&arm.body);
+                    self.indent -= 1;
+
+                    self.line("}");
+                }
             }
         }
     }
