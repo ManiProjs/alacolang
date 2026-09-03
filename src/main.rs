@@ -6,6 +6,7 @@ mod error;
 mod language;
 mod lexer;
 mod parser;
+mod stdlib;
 mod token;
 
 use std::{

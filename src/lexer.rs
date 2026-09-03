@@ -327,6 +327,7 @@ impl<'a> Lexer<'a> {
         let text = &self.source[self.start..self.current];
 
         let kind = match text {
+            "import" => TokenKind::Import,
             "fn" => TokenKind::Fn,
             "let" => TokenKind::Let,
             "mut" => TokenKind::Mut,

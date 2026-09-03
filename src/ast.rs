@@ -6,7 +6,13 @@ pub struct Program {
 }
 
 #[derive(Debug, Clone)]
+pub struct Import {
+    pub path: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
 pub enum Item {
+    Import(Import),
     Function(Function),
     Statement(Stmt),
 }

@@ -4,8 +4,8 @@ use miette::NamedSource;
 
 use crate::{
     ast::{
-        Block, Expr, Function, Item, LoopKind, MatchArm, MatchPattern, Param, Program, Stmt, Type,
-        UnaryOp,
+        Block, Expr, Function, Import, Item, LoopKind, MatchArm, MatchPattern, Param, Program,
+        Stmt, Type, UnaryOp,
     },
     error::AlacoError,
     language::BinaryOp,
@@ -32,16 +32,36 @@ impl Parser {
         self.skip_newlines();
 
         while !self.is_at_end() {
-            if self.check(&TokenKind::Fn) {
+            if self.check(&TokenKind::Import) {
+                items.push(Item::Import(self.parse_import()?));
+            } else if self.check(&TokenKind::Fn) {
                 items.push(Item::Function(self.parse_function()?));
             } else {
-                return Err(self.error("top-level statements are not allowed; expected 'fn'"));
+                return Err(
+                    self.error("top-level statements are not allowed; expected 'import' or 'fn'")
+                );
             }
 
             self.skip_newlines();
         }
 
         Ok(Program { items })
+    }
+
+    fn parse_import(&mut self) -> Result<Import, AlacoError> {
+        self.consume(&TokenKind::Import, "expected 'import'")?;
+
+        let mut path = Vec::new();
+
+        path.push(self.consume_identifier("expected module name")?);
+
+        while self.matches(&TokenKind::Dot) {
+            path.push(self.consume_identifier("expected module name after '.'")?);
+        }
+
+        self.consume_statement_end()?;
+
+        Ok(Import { path })
     }
 
     fn parse_function(&mut self) -> Result<Function, AlacoError> {
@@ -114,7 +134,16 @@ impl Parser {
         while !self.check(&TokenKind::RightBrace) && !self.is_at_end() {
             statements.push(self.parse_statement()?);
 
-            self.consume_statement_end()?;
+            // Simple statements need an explicit terminator.
+            // Block statements (`if`, `loop`, `match`) already
+            // consume their own closing brace.
+            if !matches!(
+                statements.last(),
+                Some(Stmt::If { .. } | Stmt::Loop { .. } | Stmt::Match { .. })
+            ) {
+                self.consume_statement_end()?;
+            }
+
             self.skip_newlines();
         }
 
@@ -196,6 +225,8 @@ impl Parser {
 
         let then_block = self.parse_block()?;
 
+        // A block statement may be followed by newlines before `else`
+        // or before the next statement.
         self.skip_newlines();
 
         let else_block = if self.matches(&TokenKind::Else) {

@@ -199,6 +199,20 @@ pub enum AlacoError {
         #[label("statement is not allowed here")]
         span: SourceSpan,
     },
+
+    // ─────────────────────────────────────────────────────────────
+    // Standard library
+    // ─────────────────────────────────────────────────────────────
+    #[error("failed to load standard library module `{module}`")]
+    #[diagnostic(
+        code(alaco::stdlib::load_error),
+        help("make sure the Alaco standard library is installed correctly")
+    )]
+    StdlibLoadError {
+        module: String,
+        #[source]
+        source: std::io::Error,
+    },
 }
 
 impl AlacoError {
@@ -344,6 +358,10 @@ impl AlacoError {
             Self::TopLevelStatement { .. } => Some((
                 "This statement appears outside a function.".into(),
                 "Move the statement into `main` or another function.".into(),
+            )),
+            Self::StdlibLoadError { module, .. } => Some((
+                format!("The standard library module `{module}` could not be loaded."),
+                "Check that the module is installed and that ALACO_STDLIB_DIR points to the correct standard library directory.".into(),
             )),
         }
     }

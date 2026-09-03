@@ -7,10 +7,20 @@ use std::{
 use miette::{IntoDiagnostic, NamedSource, Result};
 
 use crate::{
-    analyzer::Analyzer, ast::Program, codegen::cpp::CppGenerator, lexer::Lexer, parser::Parser,
+    analyzer::Analyzer,
+    ast::{Item, Program},
+    codegen::cpp::CppGenerator,
+    lexer::Lexer,
+    parser::Parser,
+    stdlib::{LoadedModule, Stdlib},
 };
 
 pub struct Compiler;
+
+pub struct CompilationUnit {
+    pub program: Program,
+    pub modules: Vec<LoadedModule>,
+}
 
 impl Compiler {
     fn report(error: crate::error::AlacoError, filename: &str, source: &str) -> miette::Report {
@@ -35,20 +45,26 @@ impl Compiler {
 
     /// Parse and analyze an Alaco source file.
     pub fn check(source: &str, filename: &str) -> Result<()> {
-        let program = Self::parse(source, filename)?;
+        let unit = Self::parse_unit(source, filename)?;
 
-        Analyzer::analyze(&program).map_err(|error| Self::report(error, filename, source))?;
+        Analyzer::new(&unit.modules)
+            .analyze(&unit.program)
+            .map_err(|error| Self::report(error, filename, source))?;
 
         Ok(())
     }
 
-    /// Compile Alaco source into C++ source code.
+    /// Compile an Alaco source file into C++ source code.
     pub fn compile(source: &str, filename: &str) -> Result<String> {
-        let program = Self::parse(source, filename)?;
+        let unit = Self::parse_unit(source, filename)?;
 
-        Analyzer::analyze(&program).map_err(|error| Self::report(error, filename, source))?;
+        Analyzer::new(&unit.modules)
+            .analyze(&unit.program)
+            .map_err(|error| Self::report(error, filename, source))?;
 
-        Ok(CppGenerator::new().generate(&program))
+        let mut generator = CppGenerator::new();
+
+        Ok(generator.generate_with_modules(&unit.program, &unit.modules))
     }
 
     /// Build an Alaco source file into a native executable.
@@ -90,5 +106,34 @@ impl Compiler {
             .unwrap_or("alaco_program");
 
         file.parent().unwrap_or_else(|| Path::new(".")).join(stem)
+    }
+
+    fn load_modules(program: &Program) -> Result<Vec<LoadedModule>> {
+        let stdlib = Stdlib::new();
+        let mut modules = Vec::new();
+
+        for item in &program.items {
+            let Item::Import(import) = item else {
+                continue;
+            };
+
+            // Currently only the standard library is supported.
+            if import.path.first().map(String::as_str) != Some("std") {
+                continue;
+            }
+
+            let module = stdlib.load(&import.path)?;
+
+            modules.push(module);
+        }
+
+        Ok(modules)
+    }
+
+    fn parse_unit(source: &str, filename: &str) -> Result<CompilationUnit> {
+        let program = Self::parse(source, filename)?;
+        let modules = Self::load_modules(&program)?;
+
+        Ok(CompilationUnit { program, modules })
     }
 }

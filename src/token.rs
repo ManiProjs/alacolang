@@ -2,6 +2,8 @@ use miette::SourceSpan;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenKind {
+    Import,
+
     // Keywords
     Fn,
     Let,

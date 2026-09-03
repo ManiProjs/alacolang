@@ -1,0 +1,12 @@
+import std.math;
+
+fn main() {
+    let a = 10;
+    let b = 20;
+
+    let bigger = math.max(a, b);
+    let smaller = math.min(a, b);
+
+    print(bigger);
+    print(smaller);
+}

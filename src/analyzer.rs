@@ -4,6 +4,7 @@ use crate::{
     ast::{Block, Expr, Function, Item, LoopKind, Program, Stmt},
     error::AlacoError,
     language::BinaryOp,
+    stdlib::LoadedModule,
 };
 
 #[derive(Debug, Clone)]
@@ -11,20 +12,29 @@ struct Variable {
     mutable: bool,
 }
 
-pub struct Analyzer;
+#[derive(Debug, Clone)]
+pub struct Analyzer<'a> {
+    modules: &'a [LoadedModule],
+}
 
-impl Analyzer {
-    pub fn analyze(program: &Program) -> Result<(), AlacoError> {
-        Self::check_functions(program)?;
+impl<'a> Analyzer<'a> {
+    pub fn new(modules: &'a [LoadedModule]) -> Self {
+        Self { modules }
+    }
+
+    pub fn analyze(&self, program: &Program) -> Result<(), AlacoError> {
+        self.check_functions(program)?;
 
         for item in &program.items {
             match item {
+                Item::Import(_) => {}
+
                 Item::Function(function) => {
-                    Self::analyze_function(function)?;
+                    self.analyze_function(function)?;
                 }
 
                 Item::Statement(_) => {
-                    return Err(Self::error("top-level statements are not allowed"));
+                    return Err(self.error("top-level statements are not allowed"));
                 }
             }
         }
@@ -32,7 +42,20 @@ impl Analyzer {
         Ok(())
     }
 
-    fn check_functions(program: &Program) -> Result<(), AlacoError> {
+    fn find_module(&self, alias: &str) -> Option<&LoadedModule> {
+        self.modules.iter().find(|module| module.alias == alias)
+    }
+
+    fn module_has_function(module: &LoadedModule, name: &str) -> bool {
+        module.program.items.iter().any(|item| {
+            matches!(
+                item,
+                Item::Function(function) if function.name == name
+            )
+        })
+    }
+
+    fn check_functions(&self, program: &Program) -> Result<(), AlacoError> {
         let mut functions = HashSet::new();
         let mut main_count = 0;
 
@@ -40,54 +63,51 @@ impl Analyzer {
             let function = match item {
                 Item::Function(function) => function,
 
+                Item::Import(_) => continue,
+
                 Item::Statement(_) => {
-                    return Err(Self::error(
-                        "top-level statements are not allowed; expected a function",
-                    ));
+                    return Err(
+                        self.error("top-level statements are not allowed; expected a function")
+                    );
                 }
             };
 
             if !functions.insert(function.name.as_str()) {
-                return Err(Self::error(format!(
-                    "duplicate function '{}'",
-                    function.name
-                )));
+                return Err(self.error(format!("duplicate function '{}'", function.name)));
             }
 
             if function.name == "main" {
                 main_count += 1;
 
                 if !function.params.is_empty() {
-                    return Err(Self::error("main function cannot have parameters"));
+                    return Err(self.error("main function cannot have parameters"));
                 }
 
                 if function.return_type.is_some() {
-                    return Err(Self::error(
-                        "main function cannot have an explicit return type",
-                    ));
+                    return Err(self.error("main function cannot have an explicit return type"));
                 }
             }
 
-            Self::check_parameters(function)?;
+            self.check_parameters(function)?;
         }
 
         if main_count == 0 {
-            return Err(Self::error("program must contain a 'main' function"));
+            return Err(self.error("program must contain a 'main' function"));
         }
 
         if main_count > 1 {
-            return Err(Self::error("program can only contain one 'main' function"));
+            return Err(self.error("program can only contain one 'main' function"));
         }
 
         Ok(())
     }
 
-    fn check_parameters(function: &Function) -> Result<(), AlacoError> {
+    fn check_parameters(&self, function: &Function) -> Result<(), AlacoError> {
         let mut names = HashSet::new();
 
         for parameter in &function.params {
             if !names.insert(parameter.name.as_str()) {
-                return Err(Self::error(format!(
+                return Err(self.error(format!(
                     "duplicate parameter '{}' in function '{}'",
                     parameter.name, function.name
                 )));
@@ -97,7 +117,7 @@ impl Analyzer {
         Ok(())
     }
 
-    fn analyze_function(function: &Function) -> Result<(), AlacoError> {
+    fn analyze_function(&self, function: &Function) -> Result<(), AlacoError> {
         let mut scopes = Vec::new();
 
         scopes.push(HashMap::new());
@@ -109,10 +129,11 @@ impl Analyzer {
                 .insert(parameter.name.clone(), Variable { mutable: true });
         }
 
-        Self::analyze_block(&function.body, &mut scopes, 0)
+        self.analyze_block(&function.body, &mut scopes, 0)
     }
 
     fn analyze_block(
+        &self,
         block: &Block,
         scopes: &mut Vec<HashMap<String, Variable>>,
         loop_depth: usize,
@@ -120,7 +141,7 @@ impl Analyzer {
         scopes.push(HashMap::new());
 
         for statement in &block.statements {
-            Self::analyze_statement(statement, scopes, loop_depth)?;
+            self.analyze_statement(statement, scopes, loop_depth)?;
         }
 
         scopes.pop();
@@ -129,6 +150,7 @@ impl Analyzer {
     }
 
     fn analyze_statement(
+        &self,
         statement: &Stmt,
         scopes: &mut Vec<HashMap<String, Variable>>,
         loop_depth: usize,
@@ -140,12 +162,12 @@ impl Analyzer {
                 value,
                 ..
             } => {
-                Self::analyze_expression(value, scopes)?;
+                self.analyze_expression(value, scopes)?;
 
                 let scope = scopes.last_mut().expect("analyzer scope stack is empty");
 
                 if scope.contains_key(name) {
-                    return Err(Self::error(format!(
+                    return Err(self.error(format!(
                         "variable '{}' is already declared in this scope",
                         name
                     )));
@@ -156,23 +178,23 @@ impl Analyzer {
 
             Stmt::Return(value) => {
                 if let Some(value) = value {
-                    Self::analyze_expression(value, scopes)?;
+                    self.analyze_expression(value, scopes)?;
                 }
             }
 
             Stmt::Stop(value) => {
                 if loop_depth == 0 {
-                    return Err(Self::error("'stop' can only be used inside a loop"));
+                    return Err(self.error("'stop' can only be used inside a loop"));
                 }
 
                 if let Some(value) = value {
-                    Self::analyze_expression(value, scopes)?;
+                    self.analyze_expression(value, scopes)?;
                 }
             }
 
             Stmt::Skip => {
                 if loop_depth == 0 {
-                    return Err(Self::error("'skip' can only be used inside a loop"));
+                    return Err(self.error("'skip' can only be used inside a loop"));
                 }
             }
 
@@ -181,12 +203,12 @@ impl Analyzer {
                 then_block,
                 else_block,
             } => {
-                Self::analyze_expression(condition, scopes)?;
+                self.analyze_expression(condition, scopes)?;
 
-                Self::analyze_block(then_block, scopes, loop_depth)?;
+                self.analyze_block(then_block, scopes, loop_depth)?;
 
                 if let Some(else_block) = else_block {
-                    Self::analyze_block(else_block, scopes, loop_depth)?;
+                    self.analyze_block(else_block, scopes, loop_depth)?;
                 }
             }
 
@@ -195,18 +217,18 @@ impl Analyzer {
                 binding,
                 body,
             } => {
-                Self::analyze_loop(kind, binding.as_deref(), body, scopes, loop_depth)?;
+                self.analyze_loop(kind, binding.as_deref(), body, scopes, loop_depth)?;
             }
 
             Stmt::Expr(expression) => {
-                Self::analyze_expression(expression, scopes)?;
+                self.analyze_expression(expression, scopes)?;
             }
 
             Stmt::Match { expression, arms } => {
-                Self::analyze_expression(expression, scopes)?;
+                self.analyze_expression(expression, scopes)?;
 
                 for arm in arms {
-                    Self::analyze_block(&arm.body, scopes, loop_depth)?;
+                    self.analyze_block(&arm.body, scopes, loop_depth)?;
                 }
             }
         }
@@ -215,6 +237,7 @@ impl Analyzer {
     }
 
     fn analyze_loop(
+        &self,
         kind: &LoopKind,
         binding: Option<&str>,
         body: &Block,
@@ -225,18 +248,18 @@ impl Analyzer {
             LoopKind::Infinite => {}
 
             LoopKind::Repeat(expression) => {
-                Self::analyze_expression(expression, scopes)?;
+                self.analyze_expression(expression, scopes)?;
             }
 
             LoopKind::While(condition) => {
-                Self::analyze_expression(condition, scopes)?;
+                self.analyze_expression(condition, scopes)?;
             }
 
             LoopKind::For { variable, iterable } => {
-                Self::analyze_expression(iterable, scopes)?;
+                self.analyze_expression(iterable, scopes)?;
 
                 if binding.is_some() {
-                    return Err(Self::error(
+                    return Err(self.error(
                         "a 'for' loop cannot currently have an additional iteration binding",
                     ));
                 }
@@ -250,7 +273,7 @@ impl Analyzer {
                     .expect("analyzer scope stack is empty")
                     .insert(variable.clone(), Variable { mutable: false });
 
-                Self::analyze_block_with_existing_scope(body, &mut loop_scopes, loop_depth + 1)?;
+                self.analyze_block_with_existing_scope(body, &mut loop_scopes, loop_depth + 1)?;
 
                 return Ok(());
             }
@@ -267,22 +290,24 @@ impl Analyzer {
                 .insert(binding.to_string(), Variable { mutable: false });
         }
 
-        Self::analyze_block_with_existing_scope(body, &mut loop_scopes, loop_depth + 1)
+        self.analyze_block_with_existing_scope(body, &mut loop_scopes, loop_depth + 1)
     }
 
     fn analyze_block_with_existing_scope(
+        &self,
         block: &Block,
         scopes: &mut Vec<HashMap<String, Variable>>,
         loop_depth: usize,
     ) -> Result<(), AlacoError> {
         for statement in &block.statements {
-            Self::analyze_statement(statement, scopes, loop_depth)?;
+            self.analyze_statement(statement, scopes, loop_depth)?;
         }
 
         Ok(())
     }
 
     fn analyze_expression(
+        &self,
         expression: &Expr,
         scopes: &mut Vec<HashMap<String, Variable>>,
     ) -> Result<(), AlacoError> {
@@ -290,13 +315,13 @@ impl Analyzer {
             Expr::Number(_) | Expr::String(_) | Expr::Bool(_) => {}
 
             Expr::Identifier(name) => {
-                if !Self::is_builtin(name) && Self::find_variable(scopes, name).is_none() {
-                    return Err(Self::error(format!("use of undefined variable '{}'", name)));
+                if !self.is_builtin(name) && self.find_variable(scopes, name).is_none() {
+                    return Err(self.error(format!("use of undefined variable '{}'", name)));
                 }
             }
 
             Expr::Unary { operand, .. } => {
-                Self::analyze_expression(operand, scopes)?;
+                self.analyze_expression(operand, scopes)?;
             }
 
             Expr::Binary {
@@ -304,8 +329,8 @@ impl Analyzer {
                 operator,
                 right,
             } => {
-                Self::analyze_expression(left, scopes)?;
-                Self::analyze_expression(right, scopes)?;
+                self.analyze_expression(left, scopes)?;
+                self.analyze_expression(right, scopes)?;
 
                 if matches!(
                     operator,
@@ -315,16 +340,16 @@ impl Analyzer {
                         | BinaryOp::MultiplyAssign
                         | BinaryOp::DivideAssign
                 ) {
-                    Self::check_assignment_target(left, scopes)?;
+                    self.check_assignment_target(left, scopes)?;
                 }
             }
 
             Expr::Call { callee, arguments } => {
-                Self::analyze_call(callee, arguments, scopes)?;
+                self.analyze_call(callee, arguments, scopes)?;
             }
 
             Expr::Member { object, .. } => {
-                Self::analyze_expression(object, scopes)?;
+                self.analyze_expression(object, scopes)?;
             }
         }
 
@@ -332,74 +357,97 @@ impl Analyzer {
     }
 
     fn analyze_call(
+        &self,
         callee: &Expr,
         arguments: &[Expr],
         scopes: &mut Vec<HashMap<String, Variable>>,
     ) -> Result<(), AlacoError> {
+        // std.math.max(...)
+        //
+        // The `math` identifier is a module alias, not a variable.
+        if let Expr::Member { object, member } = callee {
+            if let Expr::Identifier(alias) = object.as_ref() {
+                if let Some(module) = self.find_module(alias) {
+                    if !Self::module_has_function(module, member) {
+                        return Err(
+                            self.error(format!("module '{}' has no function '{}'", alias, member))
+                        );
+                    }
+
+                    for argument in arguments {
+                        self.analyze_expression(argument, scopes)?;
+                    }
+
+                    return Ok(());
+                }
+            }
+        }
+
+        // Builtin calls such as print(...)
         if let Expr::Identifier(name) = callee {
-            if Self::is_builtin(name) {
+            if self.is_builtin(name) {
                 for argument in arguments {
-                    Self::analyze_expression(argument, scopes)?;
+                    self.analyze_expression(argument, scopes)?;
                 }
 
                 return Ok(());
             }
         }
 
-        Self::analyze_expression(callee, scopes)?;
+        self.analyze_expression(callee, scopes)?;
 
         for argument in arguments {
-            Self::analyze_expression(argument, scopes)?;
+            self.analyze_expression(argument, scopes)?;
         }
 
         Ok(())
     }
 
-    fn is_builtin(name: &str) -> bool {
+    fn is_builtin(&self, name: &str) -> bool {
         matches!(name, "print")
     }
 
     fn check_assignment_target(
+        &self,
         expression: &Expr,
         scopes: &mut Vec<HashMap<String, Variable>>,
     ) -> Result<(), AlacoError> {
         match expression {
             Expr::Identifier(name) => {
-                let Some(variable) = Self::find_variable(scopes, name) else {
-                    return Err(Self::error(format!(
-                        "cannot assign to undefined variable '{}'",
-                        name
-                    )));
+                let Some(variable) = self.find_variable(scopes, name) else {
+                    return Err(
+                        self.error(format!("cannot assign to undefined variable '{}'", name))
+                    );
                 };
 
                 if !variable.mutable {
-                    return Err(Self::error(format!(
-                        "cannot assign to immutable variable '{}'",
-                        name
-                    )));
+                    return Err(
+                        self.error(format!("cannot assign to immutable variable '{}'", name))
+                    );
                 }
             }
 
             Expr::Member { object, .. } => {
-                Self::analyze_expression(object, scopes)?;
+                self.analyze_expression(object, scopes)?;
             }
 
             _ => {
-                return Err(Self::error("invalid assignment target"));
+                return Err(self.error("invalid assignment target"));
             }
         }
 
         Ok(())
     }
 
-    fn find_variable<'a>(
-        scopes: &'a [HashMap<String, Variable>],
+    fn find_variable<'b>(
+        &self,
+        scopes: &'b [HashMap<String, Variable>],
         name: &str,
-    ) -> Option<&'a Variable> {
+    ) -> Option<&'b Variable> {
         scopes.iter().rev().find_map(|scope| scope.get(name))
     }
 
-    fn error(message: impl Into<String>) -> AlacoError {
+    fn error(&self, message: impl Into<String>) -> AlacoError {
         AlacoError::Analysis {
             message: message.into(),
             span: None,
