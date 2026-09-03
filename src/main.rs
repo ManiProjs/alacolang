@@ -2,17 +2,20 @@ mod analyzer;
 mod ast;
 mod codegen;
 mod compiler;
+mod error;
 mod lexer;
 mod parser;
 mod token;
 
 use std::{
+    fs,
     path::{Path, PathBuf},
     process::{Command, ExitCode},
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use clap::{Parser, Subcommand};
+use miette::Result;
 use owo_colors::OwoColorize;
 
 use compiler::Compiler;
@@ -30,232 +33,178 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum CommandKind {
-    /// Check an Alaco source file without compiling it
-    Check {
-        /// Alaco source file
-        file: PathBuf,
-    },
+    /// Check an Alaco source file.
+    Check { file: PathBuf },
 
-    /// Compile an Alaco source file
+    /// Build an Alaco source file.
     Build {
-        /// Alaco source file
         file: PathBuf,
 
-        /// Output executable
         #[arg(short, long)]
         output: Option<PathBuf>,
     },
 
-    /// Compile and run an Alaco program
-    Run {
-        /// Alaco source file
-        file: PathBuf,
-    },
+    /// Compile and run an Alaco program.
+    Run { file: PathBuf },
 }
 
 fn main() -> ExitCode {
-    let cli = Cli::parse();
+    let _ = miette::set_hook(Box::new(|_| {
+        Box::new(
+            miette::MietteHandlerOpts::new()
+                .unicode(true)
+                .terminal_links(true)
+                .build(),
+        )
+    }));
 
-    match cli.command {
-        Some(CommandKind::Check { file }) => check(&file),
-        Some(CommandKind::Build { file, output }) => build(&file, output.as_deref()),
-        Some(CommandKind::Run { file }) => run(&file),
-
-        None => {
-            println!("alaco {}", env!("CARGO_PKG_VERSION"));
-
-            println!("Try 'alaco --help' for more information.");
-
-            ExitCode::SUCCESS
-        }
-    }
-}
-
-fn check(file: &Path) -> ExitCode {
-    let source = match read_source(file) {
-        Ok(source) => source,
-        Err(()) => return ExitCode::FAILURE,
-    };
-
-    let start = Instant::now();
-
-    println!("  {} {}", "Checking".bold(), file.display());
-
-    match Compiler::check(&source) {
-        Ok(_) => {
-            println!("  {} Parsed", "✓".green());
-            println!("  {} Analyzed", "✓".green());
-
-            println!();
-            println!(
-                "  {} Finished in {}",
-                "Finished".bold(),
-                format_duration(start.elapsed()).dimmed()
-            );
-
-            ExitCode::SUCCESS
-        }
+    match run_cli() {
+        Ok(code) => code,
 
         Err(error) => {
-            print_error(&error);
+            eprintln!("{error:?}");
             ExitCode::FAILURE
         }
     }
 }
 
-fn build(file: &Path, requested_output: Option<&Path>) -> ExitCode {
-    let source = match read_source(file) {
-        Ok(source) => source,
-        Err(()) => return ExitCode::FAILURE,
-    };
+fn run_cli() -> Result<ExitCode> {
+    let cli = Cli::parse();
+
+    match cli.command {
+        Some(CommandKind::Check { file }) => check(&file),
+
+        Some(CommandKind::Build { file, output }) => build(&file, output.as_deref()),
+
+        Some(CommandKind::Run { file }) => run(&file),
+
+        None => {
+            println!("alaco {}", env!("CARGO_PKG_VERSION"));
+            println!("Try {} for more information.", "alaco --help".cyan());
+
+            Ok(ExitCode::SUCCESS)
+        }
+    }
+}
+
+fn check(file: &Path) -> Result<ExitCode> {
+    let source = read_source(file)?;
+    let filename = file.display().to_string();
+
+    let start = Instant::now();
+
+    println!("  {} {}", "Checking".bold(), file.display());
+
+    Compiler::check(&source, &filename)?;
+
+    println!("  {} Parsed", "✓".green());
+    println!("  {} Analyzed", "✓".green());
+
+    print_finished(start.elapsed());
+
+    Ok(ExitCode::SUCCESS)
+}
+
+fn build(file: &Path, requested_output: Option<&Path>) -> Result<ExitCode> {
+    let source = read_source(file)?;
+    let filename = file.display().to_string();
 
     let output = requested_output
         .map(PathBuf::from)
-        .unwrap_or_else(|| Compiler::output_path(file));
+        .unwrap_or_else(|| default_output_path(file));
 
     let start = Instant::now();
 
     println!("  {} {}", "Building".bold(), file.display());
 
-    println!("  {} Checking", "→".dimmed());
-
-    if let Err(error) = Compiler::check(&source) {
-        print_error(&error);
-        return ExitCode::FAILURE;
-    }
-
-    println!("  {} Parsed", "✓".green());
-    println!("  {} Analyzed", "✓".green());
-
     println!("  {} Compiling", "→".dimmed());
 
-    if let Err(error) = Compiler::build(&source, &output) {
-        print_error(&error);
-        return ExitCode::FAILURE;
-    }
+    Compiler::build(&source, &filename, &output)?;
 
-    println!("  {} Compiled", "✓".green());
-    println!("  {} Linked", "✓".green());
+    println!("  {} Built", "✓".green());
 
-    println!();
-    println!(
-        "  {} Finished in {}",
-        "Finished".bold(),
-        format_duration(start.elapsed()).dimmed()
-    );
+    print_finished(start.elapsed());
 
-    println!("  {} {}", "→".dimmed(), output.display().bold());
+    println!("  {} {}", "→".dimmed(), output.display());
 
-    ExitCode::SUCCESS
+    Ok(ExitCode::SUCCESS)
 }
 
-fn run(file: &Path) -> ExitCode {
-    let source = match read_source(file) {
-        Ok(source) => source,
-        Err(()) => return ExitCode::FAILURE,
-    };
+fn run(file: &Path) -> Result<ExitCode> {
+    let source = read_source(file)?;
+    let filename = file.display().to_string();
+
+    let output = temporary_output_path(file);
 
     let start = Instant::now();
 
-    println!("  {} {}", "Compiling".bold(), file.display());
-
-    println!("  {} Checking", "→".dimmed());
-
-    if let Err(error) = Compiler::check(&source) {
-        print_error(&error);
-        return ExitCode::FAILURE;
-    }
-
-    println!("  {} Parsed", "✓".green());
-    println!("  {} Analyzed", "✓".green());
-
-    let output = Compiler::output_path(file);
+    println!("  {} {}", "Running".bold(), file.display());
 
     println!("  {} Compiling", "→".dimmed());
 
-    if let Err(error) = Compiler::build(&source, &output) {
-        print_error(&error);
-        return ExitCode::FAILURE;
-    }
+    Compiler::build(&source, &filename, &output)?;
 
-    println!("  {} Compiled", "✓".green());
-    println!("  {} Linked", "✓".green());
-
+    println!("  {} Built", "✓".green());
     println!();
 
     let executable = executable_path(&output);
 
-    let status = match Command::new(&executable).status() {
-        Ok(status) => status,
-
-        Err(error) => {
-            print_error(&format!(
-                "failed to run '{}': {}",
-                executable.display(),
-                error
-            ));
-
-            cleanup(&output);
-
-            return ExitCode::FAILURE;
-        }
-    };
+    let status = Command::new(&executable)
+        .status()
+        .map_err(|error| miette::miette!("failed to run '{}': {error}", executable.display()))?;
 
     cleanup(&output);
 
     println!();
 
-    if let Some(code) = status.code() {
-        if code == 0 {
-            println!(
-                "  {} Finished in {}",
-                "Finished".bold(),
-                format_duration(start.elapsed()).dimmed()
-            );
-
-            return ExitCode::SUCCESS;
-        }
-
-        println!(
-            "  {} process exited with status {}",
-            "error:".red().bold(),
-            code
-        );
-
-        return ExitCode::from(code.clamp(1, 255) as u8);
+    if status.success() {
+        print_finished(start.elapsed());
+        return Ok(ExitCode::SUCCESS);
     }
 
-    println!(
-        "  {} process terminated unexpectedly",
-        "error:".red().bold()
+    let code = status.code().unwrap_or(1);
+
+    eprintln!(
+        "{} program exited with status {}",
+        "error:".red().bold(),
+        code
     );
 
-    ExitCode::FAILURE
+    Ok(ExitCode::from(code.clamp(1, 255) as u8))
 }
 
-fn read_source(file: &Path) -> Result<String, ()> {
-    if !file.exists() {
-        print_error(&format!("file not found: {}", file.display()));
-
-        return Err(());
+fn read_source(file: &Path) -> Result<String> {
+    if file.extension().and_then(|extension| extension.to_str()) != Some("aco") {
+        return Err(miette::miette!(
+            "expected an Alaco source file (.aco), got '{}'",
+            file.display()
+        ));
     }
 
-    match file.extension().and_then(|x| x.to_str()) {
-        Some("aco") => {}
+    fs::read_to_string(file)
+        .map_err(|error| miette::miette!("failed to read '{}': {error}", file.display()))
+}
 
-        _ => {
-            print_error(&format!(
-                "expected an Alaco source file (.aco), got '{}'",
-                file.display()
-            ));
+fn default_output_path(file: &Path) -> PathBuf {
+    let parent = file.parent().unwrap_or_else(|| Path::new("."));
 
-            return Err(());
-        }
-    }
+    let name = file
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .unwrap_or("a.out");
 
-    std::fs::read_to_string(file).map_err(|error| {
-        print_error(&format!("could not read '{}': {}", file.display(), error));
-    })
+    parent.join(name)
+}
+
+fn temporary_output_path(file: &Path) -> PathBuf {
+    let parent = file.parent().unwrap_or_else(|| Path::new("."));
+
+    let name = file
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .unwrap_or("alaco_program");
+
+    parent.join(format!(".{name}.alaco-run"))
 }
 
 fn executable_path(path: &Path) -> PathBuf {
@@ -267,29 +216,27 @@ fn executable_path(path: &Path) -> PathBuf {
 }
 
 fn cleanup(path: &Path) {
-    if let Err(error) = std::fs::remove_file(path) {
-        eprintln!(
-            "{} could not remove temporary executable '{}': {}",
-            "warning:".yellow().bold(),
-            path.display(),
-            error
-        );
-    }
+    let _ = fs::remove_file(path);
 }
 
-fn print_error(error: &str) {
-    eprintln!();
-    eprintln!("{} {}", "error:".red().bold(), error);
+fn print_finished(duration: Duration) {
+    println!();
+
+    println!(
+        "  {} in {}",
+        "Finished".bold(),
+        format_duration(duration).dimmed()
+    );
 }
 
-fn format_duration(duration: std::time::Duration) -> String {
-    let millis = duration.as_secs_f64() * 1000.0;
+fn format_duration(duration: Duration) -> String {
+    let milliseconds = duration.as_secs_f64() * 1000.0;
 
-    if millis < 1.0 {
-        format!("{:.2}ms", millis)
-    } else if millis < 1000.0 {
-        format!("{:.0}ms", millis)
+    if milliseconds < 1.0 {
+        format!("{milliseconds:.2}ms")
+    } else if milliseconds < 1000.0 {
+        format!("{milliseconds:.0}ms")
     } else {
-        format!("{:.2}s", millis / 1000.0)
+        format!("{:.2}s", milliseconds / 1000.0)
     }
 }

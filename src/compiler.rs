@@ -1,8 +1,10 @@
 use std::{
-    io::Write,
+    fs,
     path::{Path, PathBuf},
     process::{Command, Stdio},
 };
+
+use miette::{IntoDiagnostic, NamedSource, Result};
 
 use crate::{
     analyzer::Analyzer, ast::Program, codegen::cpp::CppGenerator, lexer::Lexer, parser::Parser,
@@ -11,77 +13,82 @@ use crate::{
 pub struct Compiler;
 
 impl Compiler {
+    fn report(error: crate::error::AlacoError, filename: &str, source: &str) -> miette::Report {
+        miette::Report::new(error)
+            .with_source_code(NamedSource::new(filename.to_owned(), source.to_owned()))
+    }
+
     /// Lex and parse an Alaco source file.
-    pub fn parse(source: &str) -> Result<Program, String> {
-        let tokens = Lexer::new(source).tokenize()?;
-        Parser::new(tokens).parse()
+    pub fn parse(source: &str, filename: &str) -> Result<Program> {
+        let mut lexer = Lexer::new(source);
+
+        let tokens = lexer
+            .tokenize()
+            .map_err(|error| Self::report(error, filename, source))?;
+
+        let mut parser = Parser::new(tokens, filename.to_owned(), source.to_owned());
+
+        parser
+            .parse()
+            .map_err(|error| Self::report(error, filename, source))
     }
 
-    /// Run semantic analysis on an already-parsed program.
-    pub fn analyze(program: &Program) -> Result<(), String> {
-        Analyzer::analyze(program)
+    /// Parse and analyze an Alaco source file.
+    pub fn check(source: &str, filename: &str) -> Result<()> {
+        let program = Self::parse(source, filename)?;
+
+        Analyzer::analyze(&program).map_err(|error| Self::report(error, filename, source))?;
+
+        Ok(())
     }
 
-    /// Parse and analyze Alaco source.
-    ///
-    /// This does not invoke Clang and does not generate any files.
-    pub fn check(source: &str) -> Result<Program, String> {
-        let program = Self::parse(source)?;
-        Self::analyze(&program)?;
-        Ok(program)
-    }
+    /// Compile Alaco source into C++ source code.
+    pub fn compile(source: &str, filename: &str) -> Result<String> {
+        let program = Self::parse(source, filename)?;
 
-    /// Parse, analyze, and generate C++ entirely in memory.
-    pub fn generate(source: &str) -> Result<String, String> {
-        let program = Self::check(source)?;
+        Analyzer::analyze(&program).map_err(|error| Self::report(error, filename, source))?;
+
         Ok(CppGenerator::new().generate(&program))
     }
 
-    /// Compile Alaco source directly to a native executable.
-    ///
-    /// The generated C++ is passed to clang++ through stdin.
-    /// No intermediate `.cpp` file is created.
-    pub fn build(source: &str, output: &Path) -> Result<(), String> {
-        let cpp = Self::generate(source)?;
+    /// Build an Alaco source file into a native executable.
+    pub fn build(source: &str, filename: &str, output: &Path) -> Result<()> {
+        let cpp = Self::compile(source, filename)?;
 
-        let mut child = Command::new("clang++")
-            .args(["-x", "c++", "-std=c++20", "-O2", "-pipe", "-", "-o"])
+        let cpp_path = output.with_extension("cpp");
+
+        fs::write(&cpp_path, cpp).into_diagnostic()?;
+
+        let result = Command::new("clang++")
+            .arg("-std=c++20")
+            .arg(&cpp_path)
+            .arg("-o")
             .arg(output)
-            .stdin(Stdio::piped())
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
-            .spawn()
-            .map_err(|error| format!("failed to start clang++: {error}"))?;
+            .status()
+            .into_diagnostic();
 
-        {
-            let stdin = child
-                .stdin
-                .as_mut()
-                .ok_or_else(|| "failed to open clang++ stdin".to_string())?;
+        let _ = fs::remove_file(&cpp_path);
 
-            stdin
-                .write_all(cpp.as_bytes())
-                .map_err(|error| format!("failed to send generated C++ to clang++: {error}"))?;
-        }
-
-        let status = child
-            .wait()
-            .map_err(|error| format!("failed to wait for clang++: {error}"))?;
+        let status = result?;
 
         if !status.success() {
-            return Err(format!("clang++ exited with {}", status));
+            return Err(miette::miette!("clang++ exited with status {status}"));
         }
 
         Ok(())
     }
 
-    /// Determine the default executable path for an Alaco source file.
+    /// Get the default executable path for an Alaco source file.
     ///
-    /// `examples/hello.aco` → `examples/hello`
-    pub fn output_path(source: &Path) -> PathBuf {
-        source
-            .parent()
-            .unwrap_or_else(|| Path::new("."))
-            .join(source.file_stem().unwrap_or_default())
+    /// `hello.aco` -> `hello`
+    pub fn output_path(file: &Path) -> PathBuf {
+        let stem = file
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .unwrap_or("alaco_program");
+
+        file.parent().unwrap_or_else(|| Path::new(".")).join(stem)
     }
 }

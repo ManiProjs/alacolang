@@ -1,9 +1,14 @@
+use miette::SourceSpan;
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenKind {
     // Keywords
     Fn,
     Let,
     Mut,
+    Return,
+    Stop,
+    Skip,
     Loop,
     Repeat,
     While,
@@ -11,15 +16,13 @@ pub enum TokenKind {
     In,
     If,
     Else,
-    Return,
-    Stop,
-    Skip,
     True,
     False,
 
-    // Identifiers / literals
+    // Identifiers and literals
     Identifier(String),
-    Number(String),
+    Integer(i64),
+    Float(f64),
     String(String),
 
     // Operators
@@ -30,46 +33,52 @@ pub enum TokenKind {
     Percent,
 
     Equal,
-    EqualEqual,
-    NotEqual,
-    Less,
-    LessEqual,
-    Greater,
-    GreaterEqual,
-
     PlusEqual,
     MinusEqual,
     StarEqual,
     SlashEqual,
 
+    EqualEqual,
+    Bang,
+    BangEqual,
+
+    Less,
+    LessEqual,
+    Greater,
+    GreaterEqual,
+
     Arrow,
 
-    // Delimiters
+    // Punctuation
     LeftParen,
     RightParen,
     LeftBrace,
     RightBrace,
-    LeftBracket,
-    RightBracket,
-
     Comma,
     Colon,
+    Semicolon,
     Dot,
-    Pipe,
 
+    // Layout
     Newline,
+
+    // End
     Eof,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct Token {
     pub kind: TokenKind,
-    pub line: usize,
-    pub column: usize,
+    pub lexeme: String,
+    pub span: SourceSpan,
 }
 
 impl Token {
-    pub fn new(kind: TokenKind, line: usize, column: usize) -> Self {
-        Self { kind, line, column }
+    pub fn new(kind: TokenKind, lexeme: impl Into<String>, start: usize, length: usize) -> Self {
+        Self {
+            kind,
+            lexeme: lexeme.into(),
+            span: SourceSpan::new(start.into(), length.into()),
+        }
     }
 }
