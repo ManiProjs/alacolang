@@ -2,4 +2,4 @@ fn main() {
     loop (repeat 5) {
         print("Hello, world")
     }
-}rgrw
+}

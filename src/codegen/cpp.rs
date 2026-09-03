@@ -15,7 +15,6 @@ impl CppGenerator {
 
     pub fn generate(mut self, program: &Program) -> String {
         self.line("#include <iostream>");
-        self.line("#include <AlacoError>");
         self.line("");
 
         for item in &program.items {

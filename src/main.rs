@@ -36,6 +36,9 @@ enum CommandKind {
     /// Check an Alaco source file.
     Check { file: PathBuf },
 
+    /// Explain an error in an Alaco source file.
+    Explain { file: PathBuf },
+
     /// Build an Alaco source file.
     Build {
         file: PathBuf,
@@ -74,6 +77,8 @@ fn run_cli() -> Result<ExitCode> {
     match cli.command {
         Some(CommandKind::Check { file }) => check(&file),
 
+        Some(CommandKind::Explain { file }) => explain(&file),
+
         Some(CommandKind::Build { file, output }) => build(&file, output.as_deref()),
 
         Some(CommandKind::Run { file }) => run(&file),
@@ -103,6 +108,37 @@ fn check(file: &Path) -> Result<ExitCode> {
     print_finished(start.elapsed());
 
     Ok(ExitCode::SUCCESS)
+}
+
+fn explain(file: &Path) -> Result<ExitCode> {
+    let source = read_source(file)?;
+    let filename = file.display().to_string();
+
+    match Compiler::check(&source, &filename) {
+        Ok(()) => {
+            println!("  {} No errors found.", "✓".green());
+
+            Ok(ExitCode::SUCCESS)
+        }
+
+        Err(error) => {
+            eprintln!("{error:?}");
+
+            if let Some(alaco_error) = error.downcast_ref::<crate::error::AlacoError>() {
+                if let Some((why, fix)) = alaco_error.explanation() {
+                    eprintln!();
+                    eprintln!("{}", "Why this happened:".bold());
+                    eprintln!("  {why}");
+
+                    eprintln!();
+                    eprintln!("{}", "How to fix it:".bold());
+                    eprintln!("  {fix}");
+                }
+            }
+
+            Err(error)
+        }
+    }
 }
 
 fn build(file: &Path, requested_output: Option<&Path>) -> Result<ExitCode> {
