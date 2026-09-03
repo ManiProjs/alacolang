@@ -1,8 +1,9 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
-    ast::{BinaryOp, Block, Expr, Function, Item, LoopKind, Program, Stmt},
+    ast::{Block, Expr, Function, Item, LoopKind, Program, Stmt},
     error::AlacoError,
+    language::BinaryOp,
 };
 
 #[derive(Debug, Clone)]

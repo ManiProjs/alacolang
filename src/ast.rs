@@ -1,3 +1,5 @@
+use crate::language::BinaryOp;
+
 #[derive(Debug, Clone)]
 pub struct Program {
     pub items: Vec<Item>,
@@ -97,29 +99,6 @@ pub enum Expr {
         object: Box<Expr>,
         member: String,
     },
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum BinaryOp {
-    Add,
-    Subtract,
-    Multiply,
-    Divide,
-    Modulo,
-
-    Equal,
-    NotEqual,
-
-    Less,
-    LessEqual,
-    Greater,
-    GreaterEqual,
-
-    Assign,
-    AddAssign,
-    SubtractAssign,
-    MultiplyAssign,
-    DivideAssign,
 }
 
 #[derive(Debug, Clone, Copy)]

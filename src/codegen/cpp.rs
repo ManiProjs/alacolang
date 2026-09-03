@@ -15,6 +15,7 @@ impl CppGenerator {
 
     pub fn generate(mut self, program: &Program) -> String {
         self.line("#include <iostream>");
+        self.line("#include <string>");
         self.line("");
 
         for item in &program.items {
@@ -264,27 +265,7 @@ impl CppGenerator {
                 operator,
                 right,
             } => {
-                let operator = match operator {
-                    BinaryOp::Add => "+",
-                    BinaryOp::Subtract => "-",
-                    BinaryOp::Multiply => "*",
-                    BinaryOp::Divide => "/",
-                    BinaryOp::Modulo => "%",
-
-                    BinaryOp::Equal => "==",
-                    BinaryOp::NotEqual => "!=",
-
-                    BinaryOp::Less => "<",
-                    BinaryOp::LessEqual => "<=",
-                    BinaryOp::Greater => ">",
-                    BinaryOp::GreaterEqual => ">=",
-
-                    BinaryOp::Assign => "=",
-                    BinaryOp::AddAssign => "+=",
-                    BinaryOp::SubtractAssign => "-=",
-                    BinaryOp::MultiplyAssign => "*=",
-                    BinaryOp::DivideAssign => "/=",
-                };
+                let operator = operator.as_cpp();
 
                 format!(
                     "({} {} {})",
@@ -354,6 +335,7 @@ impl CppGenerator {
             if chars[i] == '{' {
                 if !text.is_empty() {
                     result.push_str(&format!("\"{}\" << ", escape_cpp(&text)));
+
                     text.clear();
                 }
 

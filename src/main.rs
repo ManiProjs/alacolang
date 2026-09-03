@@ -3,6 +3,7 @@ mod ast;
 mod codegen;
 mod compiler;
 mod error;
+mod language;
 mod lexer;
 mod parser;
 mod token;

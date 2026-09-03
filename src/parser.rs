@@ -3,8 +3,9 @@ use std::sync::Arc;
 use miette::NamedSource;
 
 use crate::{
-    ast::{BinaryOp, Block, Expr, Function, Item, LoopKind, Param, Program, Stmt, Type, UnaryOp},
+    ast::{Block, Expr, Function, Item, LoopKind, Param, Program, Stmt, Type, UnaryOp},
     error::AlacoError,
+    language::BinaryOp,
     token::{Token, TokenKind},
 };
 
@@ -25,7 +26,6 @@ impl Parser {
 
     pub fn parse(&mut self) -> Result<Program, AlacoError> {
         let mut items = Vec::new();
-
         self.skip_newlines();
 
         while !self.is_at_end() {
@@ -124,9 +124,13 @@ impl Parser {
         match self.peek().kind.clone() {
             TokenKind::Let => self.parse_let_statement(),
             TokenKind::Return => self.parse_return_statement(),
+            TokenKind::Stop => self.parse_stop_statement(),
+            TokenKind::Skip => {
+                self.advance();
+                Ok(Stmt::Skip)
+            }
             TokenKind::Loop => self.parse_loop_statement(),
             TokenKind::If => self.parse_if_statement(),
-
             _ => {
                 let expression = self.parse_expression()?;
                 Ok(Stmt::Expr(expression))
@@ -166,6 +170,16 @@ impl Parser {
             Ok(Stmt::Return(None))
         } else {
             Ok(Stmt::Return(Some(self.parse_expression()?)))
+        }
+    }
+
+    fn parse_stop_statement(&mut self) -> Result<Stmt, AlacoError> {
+        self.consume(&TokenKind::Stop, "expected 'stop'")?;
+
+        if self.is_statement_end() {
+            Ok(Stmt::Stop(None))
+        } else {
+            Ok(Stmt::Stop(Some(self.parse_expression()?)))
         }
     }
 
@@ -271,15 +285,14 @@ impl Parser {
         let mut expression = self.parse_comparison()?;
 
         loop {
-            let operator = if self.matches(&TokenKind::EqualEqual) {
-                Some(BinaryOp::Equal)
-            } else if self.matches(&TokenKind::BangEqual) {
-                Some(BinaryOp::NotEqual)
+            let operator = if let Some(operator) = BinaryOp::from_token(&self.peek().kind) {
+                if matches!(operator, BinaryOp::Equal | BinaryOp::NotEqual) {
+                    self.advance();
+                    operator
+                } else {
+                    break;
+                }
             } else {
-                None
-            };
-
-            let Some(operator) = operator else {
                 break;
             };
 
@@ -299,19 +312,20 @@ impl Parser {
         let mut expression = self.parse_term()?;
 
         loop {
-            let operator = if self.matches(&TokenKind::Less) {
-                Some(BinaryOp::Less)
-            } else if self.matches(&TokenKind::LessEqual) {
-                Some(BinaryOp::LessEqual)
-            } else if self.matches(&TokenKind::Greater) {
-                Some(BinaryOp::Greater)
-            } else if self.matches(&TokenKind::GreaterEqual) {
-                Some(BinaryOp::GreaterEqual)
+            let operator = if let Some(operator) = BinaryOp::from_token(&self.peek().kind) {
+                if matches!(
+                    operator,
+                    BinaryOp::Less
+                        | BinaryOp::LessEqual
+                        | BinaryOp::Greater
+                        | BinaryOp::GreaterEqual
+                ) {
+                    self.advance();
+                    operator
+                } else {
+                    break;
+                }
             } else {
-                None
-            };
-
-            let Some(operator) = operator else {
                 break;
             };
 
@@ -331,15 +345,14 @@ impl Parser {
         let mut expression = self.parse_factor()?;
 
         loop {
-            let operator = if self.matches(&TokenKind::Plus) {
-                Some(BinaryOp::Add)
-            } else if self.matches(&TokenKind::Minus) {
-                Some(BinaryOp::Subtract)
+            let operator = if let Some(operator) = BinaryOp::from_token(&self.peek().kind) {
+                if matches!(operator, BinaryOp::Add | BinaryOp::Subtract) {
+                    self.advance();
+                    operator
+                } else {
+                    break;
+                }
             } else {
-                None
-            };
-
-            let Some(operator) = operator else {
                 break;
             };
 
@@ -359,17 +372,17 @@ impl Parser {
         let mut expression = self.parse_unary()?;
 
         loop {
-            let operator = if self.matches(&TokenKind::Star) {
-                Some(BinaryOp::Multiply)
-            } else if self.matches(&TokenKind::Slash) {
-                Some(BinaryOp::Divide)
-            } else if self.matches(&TokenKind::Percent) {
-                Some(BinaryOp::Modulo)
+            let operator = if let Some(operator) = BinaryOp::from_token(&self.peek().kind) {
+                if matches!(
+                    operator,
+                    BinaryOp::Multiply | BinaryOp::Divide | BinaryOp::Modulo
+                ) {
+                    self.advance();
+                    operator
+                } else {
+                    break;
+                }
             } else {
-                None
-            };
-
-            let Some(operator) = operator else {
                 break;
             };
 
