@@ -1,0 +1,7 @@
+fn main() {
+    print(say_hello());
+}
+
+fn say_hello() -> String {
+    return "hello!"
+}

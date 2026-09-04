@@ -27,11 +27,42 @@ impl CppGenerator {
 
         self.generate_header();
 
+        // Emit declarations first so functions can call functions
+        // regardless of declaration order.
+        for item in &program.items {
+            if let Item::Function(function) = item {
+                self.function_declaration(function);
+            }
+        }
+
+        self.line("");
+
         for item in &program.items {
             self.item(item);
         }
 
         std::mem::take(&mut self.output)
+    }
+
+    fn function_declaration(&mut self, function: &Function) {
+        let return_type = if function.name == "main" {
+            "int".to_string()
+        } else {
+            function
+                .return_type
+                .as_ref()
+                .map(Self::type_name)
+                .unwrap_or_else(|| "void".to_string())
+        };
+
+        let params = function
+            .params
+            .iter()
+            .map(|param| format!("{} {}", Self::type_name(&param.ty), param.name))
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        self.line(&format!("{} {}({});", return_type, function.name, params));
     }
 
     pub fn generate_with_modules(&mut self, program: &Program, modules: &[LoadedModule]) -> String {
@@ -44,6 +75,16 @@ impl CppGenerator {
         for item in modules {
             self.module(item);
         }
+
+        // Emit declarations first so functions can call functions
+        // regardless of declaration order.
+        for item in &program.items {
+            if let Item::Function(function) = item {
+                self.function_declaration(function);
+            }
+        }
+
+        self.line("");
 
         for item in &program.items {
             self.item(item);
