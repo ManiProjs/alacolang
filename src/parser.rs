@@ -183,10 +183,10 @@ impl Parser {
         let name = self.consume_identifier("expected type name")?;
 
         Ok(match name.as_str() {
-            "int" => Type::Int,
-            "float" => Type::Float,
-            "bool" => Type::Bool,
-            "string" => Type::String,
+            "Int" => Type::Int,
+            "Float" => Type::Float,
+            "Bool" => Type::Bool,
+            "String" => Type::String,
             _ => Type::Named(name),
         })
     }

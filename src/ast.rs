@@ -154,5 +154,6 @@ pub enum Type {
     Float,
     Bool,
     String,
+    Void,
     Named(String),
 }

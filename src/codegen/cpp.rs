@@ -41,8 +41,8 @@ impl CppGenerator {
 
         self.generate_header();
 
-        for module in modules {
-            self.module(module);
+        for item in modules {
+            self.module(item);
         }
 
         for item in &program.items {
@@ -55,7 +55,7 @@ impl CppGenerator {
     fn generate_header(&mut self) {
         self.line("#include <iostream>");
         self.line("#include <string>");
-        self.line("#include <vector>");
+        self.line("#include <utility>");
         self.line("");
     }
 
@@ -64,18 +64,9 @@ impl CppGenerator {
         self.indent += 1;
 
         for item in &module.program.items {
-            match item {
-                Item::Function(function) => {
-                    self.function(function);
-                    self.line("");
-                }
-
-                Item::Struct(struct_def) => {
-                    self.struct_definition(struct_def);
-                    self.line("");
-                }
-
-                Item::Import(_) | Item::Statement(_) => {}
+            if let Item::Function(function) = item {
+                self.function(function);
+                self.line("");
             }
         }
 
@@ -88,8 +79,8 @@ impl CppGenerator {
         match item {
             Item::Import(_) => {}
 
-            Item::Struct(struct_def) => {
-                self.struct_definition(struct_def);
+            Item::Struct(structure) => {
+                self.structure(structure);
                 self.line("");
             }
 
@@ -104,12 +95,12 @@ impl CppGenerator {
         }
     }
 
-    fn struct_definition(&mut self, struct_def: &crate::ast::Struct) {
-        self.line(&format!("struct {} {{", struct_def.name));
+    fn structure(&mut self, structure: &crate::ast::Struct) {
+        self.line(&format!("struct {} {{", structure.name));
 
         self.indent += 1;
 
-        for field in &struct_def.fields {
+        for field in &structure.fields {
             self.line(&format!("{} {};", Self::type_name(&field.ty), field.name));
         }
 
@@ -262,9 +253,14 @@ impl CppGenerator {
         }
 
         self.indent += 1;
-        self.block(body);
-        self.indent -= 1;
 
+        if let Some(binding) = binding {
+            self.line(&format!("auto {} = 0;", binding));
+        }
+
+        self.block(body);
+
+        self.indent -= 1;
         self.line("}");
     }
 
@@ -353,6 +349,16 @@ impl CppGenerator {
 
             Expr::Identifier(name) => name.clone(),
 
+            Expr::StructLiteral { name, fields } => {
+                let fields = fields
+                    .iter()
+                    .map(|(_, value)| self.expression(value))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+
+                format!("{}{{{}}}", name, fields)
+            }
+
             Expr::Unary { operator, operand } => {
                 let operator = match operator {
                     UnaryOp::Negate => "-",
@@ -399,17 +405,13 @@ impl CppGenerator {
             }
 
             Expr::Member { object, member } => {
+                if let Expr::Identifier(alias) = object.as_ref() {
+                    if self.find_module(alias).is_some() {
+                        return format!("{}::{}", alias, member);
+                    }
+                }
+
                 format!("{}.{}", self.expression(object), member)
-            }
-
-            Expr::StructLiteral { name, fields } => {
-                let values = fields
-                    .iter()
-                    .map(|(_, value)| self.expression(value))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-
-                format!("{}{{{}}}", name, values)
             }
         }
     }
@@ -437,7 +439,14 @@ impl CppGenerator {
             Type::Float => "double".to_string(),
             Type::Bool => "bool".to_string(),
             Type::String => "std::string".to_string(),
-            Type::Named(name) => name.clone(),
+            Type::Void => "void".to_string(),
+            Type::Named(name) => {
+                if name == "Void" {
+                    "void".to_string()
+                } else {
+                    name.clone()
+                }
+            }
         }
     }
 }
