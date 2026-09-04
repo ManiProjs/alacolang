@@ -1,7 +1,14 @@
-fn main() {
-    print(say_hello());
+fn double(value: Int) -> Int {
+    return value * 2
 }
 
-fn say_hello() -> String {
-    return "hello!"
+fn add(a: Int, b: Int) -> Int {
+    return a + b
+}
+
+fn main() {
+    let a = double(10)
+    let b = add(a, 5)
+
+    print(b)
 }
