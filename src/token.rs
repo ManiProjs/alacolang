@@ -21,6 +21,7 @@ pub enum TokenKind {
     True,
     False,
     Match,
+    Struct,
 
     // Identifiers and literals
     Identifier(String),

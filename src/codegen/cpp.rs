@@ -41,12 +41,10 @@ impl CppGenerator {
 
         self.generate_header();
 
-        // Generate imported standard-library modules first.
         for module in modules {
             self.module(module);
         }
 
-        // Then generate the user's program.
         for item in &program.items {
             self.item(item);
         }
@@ -57,6 +55,7 @@ impl CppGenerator {
     fn generate_header(&mut self) {
         self.line("#include <iostream>");
         self.line("#include <string>");
+        self.line("#include <vector>");
         self.line("");
     }
 
@@ -71,6 +70,11 @@ impl CppGenerator {
                     self.line("");
                 }
 
+                Item::Struct(struct_def) => {
+                    self.struct_definition(struct_def);
+                    self.line("");
+                }
+
                 Item::Import(_) | Item::Statement(_) => {}
             }
         }
@@ -82,8 +86,11 @@ impl CppGenerator {
 
     fn item(&mut self, item: &Item) {
         match item {
-            Item::Import(_) => {
-                // Imports are handled before code generation.
+            Item::Import(_) => {}
+
+            Item::Struct(struct_def) => {
+                self.struct_definition(struct_def);
+                self.line("");
             }
 
             Item::Function(function) => {
@@ -95,6 +102,20 @@ impl CppGenerator {
                 self.statement(statement);
             }
         }
+    }
+
+    fn struct_definition(&mut self, struct_def: &crate::ast::Struct) {
+        self.line(&format!("struct {} {{", struct_def.name));
+
+        self.indent += 1;
+
+        for field in &struct_def.fields {
+            self.line(&format!("{} {};", Self::type_name(&field.ty), field.name));
+        }
+
+        self.indent -= 1;
+
+        self.line("};");
     }
 
     fn function(&mut self, function: &Function) {
@@ -152,8 +173,7 @@ impl CppGenerator {
 
             Stmt::Return(value) => {
                 if let Some(value) = value {
-                    let value = self.expression(value);
-                    self.line(&format!("return {};", value));
+                    self.line(&format!("return {};", self.expression(value)));
                 } else {
                     self.line("return;");
                 }
@@ -161,8 +181,7 @@ impl CppGenerator {
 
             Stmt::Stop(value) => {
                 if let Some(value) = value {
-                    let value = self.expression(value);
-                    self.line(&format!("return {};", value));
+                    self.line(&format!("return {};", self.expression(value)));
                 } else {
                     self.line("break;");
                 }
@@ -173,8 +192,7 @@ impl CppGenerator {
             }
 
             Stmt::Expr(expression) => {
-                let expression = self.expression(expression);
-                self.line(&format!("{};", expression));
+                self.line(&format!("{};", self.expression(expression)));
             }
 
             Stmt::If {
@@ -182,9 +200,7 @@ impl CppGenerator {
                 then_block,
                 else_block,
             } => {
-                let condition = self.expression(condition);
-
-                self.line(&format!("if ({}) {{", condition));
+                self.line(&format!("if ({}) {{", self.expression(condition)));
 
                 self.indent += 1;
                 self.block(then_block);
@@ -233,15 +249,15 @@ impl CppGenerator {
             }
 
             LoopKind::While(condition) => {
-                let condition = self.expression(condition);
-
-                self.line(&format!("while ({}) {{", condition));
+                self.line(&format!("while ({}) {{", self.expression(condition)));
             }
 
             LoopKind::For { variable, iterable } => {
-                let iterable = self.expression(iterable);
-
-                self.line(&format!("for (auto {} : {}) {{", variable, iterable));
+                self.line(&format!(
+                    "for (auto {} : {}) {{",
+                    variable,
+                    self.expression(iterable)
+                ));
             }
         }
 
@@ -258,21 +274,19 @@ impl CppGenerator {
         for (index, arm) in arms.iter().enumerate() {
             match &arm.pattern {
                 MatchPattern::Number(value) => {
-                    let condition = format!("{} == {}", expression, value);
-
-                    self.match_condition(index, &condition, &arm.body);
+                    self.match_condition(index, &format!("{} == {}", expression, value), &arm.body);
                 }
 
                 MatchPattern::String(value) => {
-                    let condition = format!("{} == \"{}\"", expression, escape_cpp(value));
-
-                    self.match_condition(index, &condition, &arm.body);
+                    self.match_condition(
+                        index,
+                        &format!("{} == \"{}\"", expression, escape_cpp(value)),
+                        &arm.body,
+                    );
                 }
 
                 MatchPattern::Bool(value) => {
-                    let condition = format!("{} == {}", expression, value);
-
-                    self.match_condition(index, &condition, &arm.body);
+                    self.match_condition(index, &format!("{} == {}", expression, value), &arm.body);
                 }
 
                 MatchPattern::Identifier(name) => {
@@ -352,10 +366,12 @@ impl CppGenerator {
                 operator,
                 right,
             } => {
-                let left = self.expression(left);
-                let right = self.expression(right);
-
-                format!("({} {} {})", left, operator.as_cpp(), right)
+                format!(
+                    "({} {} {})",
+                    self.expression(left),
+                    operator.as_cpp(),
+                    self.expression(right)
+                )
             }
 
             Expr::Call { callee, arguments } => {
@@ -365,20 +381,12 @@ impl CppGenerator {
                     .collect::<Vec<_>>()
                     .join(", ");
 
-                // Built-in print().
                 if let Expr::Identifier(name) = callee.as_ref() {
                     if name == "print" {
                         return self.print_call(arguments);
                     }
                 }
 
-                // Standard-library module call:
-                //
-                // math.max(10, 20)
-                //
-                // becomes:
-                //
-                // math::max(10, 20)
                 if let Expr::Member { object, member } = callee.as_ref() {
                     if let Expr::Identifier(alias) = object.as_ref() {
                         if self.find_module(alias).is_some() {
@@ -387,19 +395,21 @@ impl CppGenerator {
                     }
                 }
 
-                let callee = self.expression(callee);
-
-                format!("{}({})", callee, arguments)
+                format!("{}({})", self.expression(callee), arguments)
             }
 
             Expr::Member { object, member } => {
-                if let Expr::Identifier(alias) = object.as_ref() {
-                    if self.find_module(alias).is_some() {
-                        return format!("{}::{}", alias, member);
-                    }
-                }
-
                 format!("{}.{}", self.expression(object), member)
+            }
+
+            Expr::StructLiteral { name, fields } => {
+                let values = fields
+                    .iter()
+                    .map(|(_, value)| self.expression(value))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+
+                format!("{}{{{}}}", name, values)
             }
         }
     }

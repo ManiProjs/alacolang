@@ -5,7 +5,7 @@ use miette::NamedSource;
 use crate::{
     ast::{
         Block, Expr, Function, Import, Item, LoopKind, MatchArm, MatchPattern, Param, Program,
-        Stmt, Type, UnaryOp,
+        Stmt, Struct, StructField, Type, UnaryOp,
     },
     error::AlacoError,
     language::BinaryOp,
@@ -34,12 +34,12 @@ impl Parser {
         while !self.is_at_end() {
             if self.check(&TokenKind::Import) {
                 items.push(Item::Import(self.parse_import()?));
+            } else if self.check(&TokenKind::Struct) {
+                items.push(Item::Struct(self.parse_struct()?));
             } else if self.check(&TokenKind::Fn) {
                 items.push(Item::Function(self.parse_function()?));
             } else {
-                return Err(
-                    self.error("top-level statements are not allowed; expected 'import' or 'fn'")
-                );
+                return Err(self.error("expected 'struct', 'import', or 'fn' at top level"));
             }
 
             self.skip_newlines();
@@ -62,6 +62,73 @@ impl Parser {
         self.consume_statement_end()?;
 
         Ok(Import { path })
+    }
+
+    fn parse_struct(&mut self) -> Result<Struct, AlacoError> {
+        self.consume(&TokenKind::Struct, "expected 'struct'")?;
+
+        let name = self.consume_identifier("expected struct name")?;
+
+        self.skip_newlines();
+
+        self.consume(&TokenKind::LeftBrace, "expected '{' after struct name")?;
+
+        self.skip_newlines();
+
+        let mut fields = Vec::new();
+
+        while !self.check(&TokenKind::RightBrace) && !self.is_at_end() {
+            let field_name = self.consume_identifier("expected field name")?;
+
+            self.consume(&TokenKind::Colon, "expected ':' after field name")?;
+
+            let ty = self.parse_type()?;
+
+            fields.push(StructField {
+                name: field_name,
+                ty,
+            });
+
+            // Struct fields may be separated by:
+            //
+            //     name: String
+            //     age: Int
+            //
+            // or:
+            //
+            //     name: String,
+            //     age: Int,
+            //
+            // or:
+            //
+            //     name: String;
+            //     age: Int;
+            //
+            if self.matches(&TokenKind::Comma) {
+                self.skip_newlines();
+                continue;
+            }
+
+            if self.matches(&TokenKind::Semicolon) {
+                self.skip_newlines();
+                continue;
+            }
+
+            if self.matches(&TokenKind::Newline) {
+                self.skip_newlines();
+                continue;
+            }
+
+            if self.check(&TokenKind::RightBrace) {
+                break;
+            }
+
+            return Err(self.error("expected ',', ';', newline, or '}' after struct field"));
+        }
+
+        self.consume(&TokenKind::RightBrace, "expected '}' after struct fields")?;
+
+        Ok(Struct { name, fields })
     }
 
     fn parse_function(&mut self) -> Result<Function, AlacoError> {
@@ -132,15 +199,16 @@ impl Parser {
         self.skip_newlines();
 
         while !self.check(&TokenKind::RightBrace) && !self.is_at_end() {
-            statements.push(self.parse_statement()?);
+            let statement = self.parse_statement()?;
 
-            // Simple statements need an explicit terminator.
-            // Block statements (`if`, `loop`, `match`) already
-            // consume their own closing brace.
-            if !matches!(
-                statements.last(),
-                Some(Stmt::If { .. } | Stmt::Loop { .. } | Stmt::Match { .. })
-            ) {
+            let is_block_statement = matches!(
+                &statement,
+                Stmt::If { .. } | Stmt::Loop { .. } | Stmt::Match { .. }
+            );
+
+            statements.push(statement);
+
+            if !is_block_statement {
                 self.consume_statement_end()?;
             }
 
@@ -608,6 +676,59 @@ impl Parser {
 
             TokenKind::Identifier(name) => {
                 self.advance();
+
+                // Struct literal:
+                //
+                // User {
+                //     name: "Mani",
+                //     age: 13,
+                // }
+                if self.check(&TokenKind::LeftBrace) {
+                    self.advance();
+
+                    self.skip_newlines();
+
+                    let mut fields = Vec::new();
+
+                    while !self.check(&TokenKind::RightBrace) && !self.is_at_end() {
+                        let field_name =
+                            self.consume_identifier("expected field name in struct literal")?;
+
+                        self.consume(&TokenKind::Colon, "expected ':' after struct field name")?;
+
+                        let value = self.parse_expression()?;
+
+                        fields.push((field_name, value));
+
+                        if self.matches(&TokenKind::Comma) {
+                            self.skip_newlines();
+                            continue;
+                        }
+
+                        if self.matches(&TokenKind::Semicolon) {
+                            self.skip_newlines();
+                            continue;
+                        }
+
+                        if self.matches(&TokenKind::Newline) {
+                            self.skip_newlines();
+                            continue;
+                        }
+
+                        if self.check(&TokenKind::RightBrace) {
+                            break;
+                        }
+
+                        return Err(
+                            self.error("expected ',', ';', newline, or '}' after struct field")
+                        );
+                    }
+
+                    self.consume(&TokenKind::RightBrace, "expected '}' after struct literal")?;
+
+                    return Ok(Expr::StructLiteral { name, fields });
+                }
+
                 Ok(Expr::Identifier(name))
             }
 

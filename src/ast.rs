@@ -13,8 +13,21 @@ pub struct Import {
 #[derive(Debug, Clone)]
 pub enum Item {
     Import(Import),
+    Struct(Struct),
     Function(Function),
     Statement(Stmt),
+}
+
+#[derive(Debug, Clone)]
+pub struct Struct {
+    pub name: String,
+    pub fields: Vec<StructField>,
+}
+
+#[derive(Debug, Clone)]
+pub struct StructField {
+    pub name: String,
+    pub ty: Type,
 }
 
 #[derive(Debug, Clone)]
@@ -89,9 +102,7 @@ pub enum Stmt {
 #[derive(Debug, Clone)]
 pub enum LoopKind {
     Infinite,
-
     Repeat(Expr),
-
     While(Expr),
 
     For { variable: String, iterable: Expr },
@@ -104,6 +115,11 @@ pub enum Expr {
     Bool(bool),
 
     Identifier(String),
+
+    StructLiteral {
+        name: String,
+        fields: Vec<(String, Expr)>,
+    },
 
     Binary {
         left: Box<Expr>,
@@ -132,7 +148,7 @@ pub enum UnaryOp {
     Negate,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Type {
     Int,
     Float,

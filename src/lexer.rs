@@ -344,6 +344,7 @@ impl<'a> Lexer<'a> {
             "true" => TokenKind::True,
             "false" => TokenKind::False,
             "match" => TokenKind::Match,
+            "struct" => TokenKind::Struct,
             _ => TokenKind::Identifier(text.to_string()),
         };
 
