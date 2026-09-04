@@ -24,10 +24,17 @@ pub struct Struct {
     pub fields: Vec<StructField>,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct Span {
+    pub start: usize,
+    pub end: usize,
+}
+
 #[derive(Debug, Clone)]
 pub struct StructField {
     pub name: String,
     pub ty: Type,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone)]

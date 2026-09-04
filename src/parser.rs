@@ -5,7 +5,7 @@ use miette::NamedSource;
 use crate::{
     ast::{
         Block, Expr, Function, Import, Item, LoopKind, MatchArm, MatchPattern, Param, Program,
-        Stmt, Struct, StructField, Type, UnaryOp,
+        Span, Stmt, Struct, StructField, Type, UnaryOp,
     },
     error::AlacoError,
     language::BinaryOp,
@@ -78,6 +78,13 @@ impl Parser {
         let mut fields = Vec::new();
 
         while !self.check(&TokenKind::RightBrace) && !self.is_at_end() {
+            let source_span = self.peek().span;
+
+            let field_span = Span {
+                start: source_span.offset(),
+                end: source_span.offset() + source_span.len(),
+            };
+
             let field_name = self.consume_identifier("expected field name")?;
 
             self.consume(&TokenKind::Colon, "expected ':' after field name")?;
@@ -87,23 +94,9 @@ impl Parser {
             fields.push(StructField {
                 name: field_name,
                 ty,
+                span: field_span,
             });
 
-            // Struct fields may be separated by:
-            //
-            //     name: String
-            //     age: Int
-            //
-            // or:
-            //
-            //     name: String,
-            //     age: Int,
-            //
-            // or:
-            //
-            //     name: String;
-            //     age: Int;
-            //
             if self.matches(&TokenKind::Comma) {
                 self.skip_newlines();
                 continue;
@@ -187,6 +180,7 @@ impl Parser {
             "Float" => Type::Float,
             "Bool" => Type::Bool,
             "String" => Type::String,
+            "Void" => Type::Void,
             _ => Type::Named(name),
         })
     }
