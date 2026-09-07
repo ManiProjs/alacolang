@@ -9,7 +9,7 @@ use miette::{IntoDiagnostic, NamedSource, Result};
 use crate::{
     analyzer::Analyzer,
     ast::{Item, Program},
-    codegen::cpp::CppGenerator,
+    codegen::cpp::CppCodegen,
     lexer::Lexer,
     parser::Parser,
     stdlib::{LoadedModule, Stdlib},
@@ -28,7 +28,6 @@ impl Compiler {
             .with_source_code(NamedSource::new(filename.to_owned(), source.to_owned()))
     }
 
-    /// Lex and parse an Alaco source file.
     pub fn parse(source: &str, filename: &str) -> Result<Program> {
         let mut lexer = Lexer::new(source);
 
@@ -38,9 +37,11 @@ impl Compiler {
 
         let mut parser = Parser::new(tokens, filename.to_owned(), source.to_owned());
 
-        parser
+        let result = parser
             .parse()
-            .map_err(|error| Self::report(error, filename, source))
+            .map_err(|error| Self::report(error, filename, source));
+
+        result
     }
 
     /// Parse and analyze an Alaco source file.
@@ -62,9 +63,11 @@ impl Compiler {
             .analyze(&unit.program)
             .map_err(|error| Self::report(error, filename, source))?;
 
-        let mut generator = CppGenerator::new();
+        let generator = CppCodegen::new();
 
-        Ok(generator.generate_with_modules(&unit.program, &unit.modules))
+        let output = generator.generate_with_modules(&unit.program, &unit.modules);
+
+        Ok(output)
     }
 
     /// Build an Alaco source file into a native executable.
@@ -132,6 +135,7 @@ impl Compiler {
 
     fn parse_unit(source: &str, filename: &str) -> Result<CompilationUnit> {
         let program = Self::parse(source, filename)?;
+
         let modules = Self::load_modules(&program)?;
 
         Ok(CompilationUnit { program, modules })

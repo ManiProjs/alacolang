@@ -1,0 +1,7 @@
+fn main() {
+    let result = shell {
+        echo "Hi!"
+    };
+
+    print(result.get().output);
+}

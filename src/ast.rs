@@ -1,4 +1,11 @@
 use crate::language::BinaryOp;
+use miette::SourceSpan;
+
+impl From<Span> for SourceSpan {
+    fn from(span: Span) -> Self {
+        SourceSpan::new(span.start.into(), (span.end - span.start).into())
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct Program {
@@ -78,31 +85,35 @@ pub enum Stmt {
         mutable: bool,
         ty: Option<Type>,
         value: Expr,
+        span: Span,
     },
 
-    Return(Option<Expr>),
+    Return(Option<Expr>, Span),
 
-    Stop(Option<Expr>),
+    Stop(Option<Expr>, Span),
 
-    Skip,
+    Skip(Span),
 
     If {
         condition: Expr,
         then_block: Block,
         else_block: Option<Block>,
+        span: Span,
     },
 
     Loop {
         kind: LoopKind,
         binding: Option<String>,
         body: Block,
+        span: Span,
     },
 
-    Expr(Expr),
+    Expr(Expr, Span),
 
     Match {
         expression: Expr,
         arms: Vec<MatchArm>,
+        span: Span,
     },
 }
 
@@ -117,37 +128,79 @@ pub enum LoopKind {
 
 #[derive(Debug, Clone)]
 pub enum Expr {
-    Number(String),
-    String(String),
-    Bool(bool),
+    Number(String, Span),
+    String(String, Span),
+    Bool(bool, Span),
 
-    Identifier(String),
+    Identifier(String, Span),
 
     StructLiteral {
         name: String,
         fields: Vec<(String, Expr)>,
+        span: Span,
     },
 
     Binary {
         left: Box<Expr>,
         operator: BinaryOp,
         right: Box<Expr>,
+        span: Span,
     },
 
     Unary {
         operator: UnaryOp,
         operand: Box<Expr>,
+        span: Span,
     },
 
     Call {
         callee: Box<Expr>,
         arguments: Vec<Expr>,
+        span: Span,
     },
 
     Member {
         object: Box<Expr>,
         member: String,
+        span: Span,
     },
+
+    Shell {
+        command: String,
+        span: Span,
+    },
+}
+
+impl Expr {
+    pub fn span(&self) -> Span {
+        match self {
+            Expr::Number(_, span) => *span,
+            Expr::String(_, span) => *span,
+            Expr::Bool(_, span) => *span,
+            Expr::Identifier(_, span) => *span,
+            Expr::StructLiteral { span, .. } => *span,
+            Expr::Binary { span, .. } => *span,
+            Expr::Unary { span, .. } => *span,
+            Expr::Call { span, .. } => *span,
+            Expr::Member { span, .. } => *span,
+            Expr::Shell { span, .. } => *span,
+        }
+    }
+}
+
+impl Stmt {
+    pub fn span(&self) -> Span {
+        match self {
+            Stmt::Let { span, .. } => *span,
+            Stmt::Return(_, span) => *span,
+            Stmt::Stop(_, span) => *span,
+            Stmt::Skip(span) => *span,
+            Stmt::If { span, .. } => *span,
+            Stmt::Loop { span, .. } => *span,
+            Stmt::Expr(_, span) => *span,
+            Stmt::Match { span, .. } => *span,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -161,6 +214,8 @@ pub enum Type {
     Float,
     Bool,
     String,
+    Shell,
+    ShellResult,
     Void,
     Named(String),
 }

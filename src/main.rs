@@ -66,10 +66,7 @@ fn main() -> ExitCode {
     match run_cli() {
         Ok(code) => code,
 
-        Err(error) => {
-            eprintln!("{error:?}");
-            ExitCode::FAILURE
-        }
+        Err(error) => ExitCode::FAILURE,
     }
 }
 
@@ -124,18 +121,8 @@ fn explain(file: &Path) -> Result<ExitCode> {
         }
 
         Err(error) => {
-            eprintln!("{error:?}");
-
             if let Some(alaco_error) = error.downcast_ref::<crate::error::AlacoError>() {
-                if let Some((why, fix)) = alaco_error.explanation() {
-                    eprintln!();
-                    eprintln!("{}", "Why this happened:".bold());
-                    eprintln!("  {why}");
-
-                    eprintln!();
-                    eprintln!("{}", "How to fix it:".bold());
-                    eprintln!("  {fix}");
-                }
+                if let Some((why, fix)) = alaco_error.explanation() {}
             }
 
             Err(error)
@@ -201,12 +188,6 @@ fn run(file: &Path) -> Result<ExitCode> {
     }
 
     let code = status.code().unwrap_or(1);
-
-    eprintln!(
-        "{} program exited with status {}",
-        "error:".red().bold(),
-        code
-    );
 
     Ok(ExitCode::from(code.clamp(1, 255) as u8))
 }

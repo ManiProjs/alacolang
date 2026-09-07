@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::{
     ast::{
-        Block, Expr, Function, Item, LoopKind, MatchPattern, Program, Stmt, Struct, Type, UnaryOp,
+        Block, Expr, Function, Item, LoopKind, MatchPattern, Program, Stmt, Struct, Type, UnaryOp, Span
     },
     error::AlacoError,
     language::BinaryOp,
@@ -55,11 +55,10 @@ impl<'a> Analyzer<'a> {
         let mut structs = HashSet::new();
         let mut main_count = 0;
 
-        // Collect struct names first so functions can reference them.
         for item in &program.items {
             if let Item::Struct(structure) = item {
                 if !structs.insert(structure.name.as_str()) {
-                    return Err(self.error(format!("duplicate struct '{}'", structure.name)));
+                    return Err(self.error(format!("duplicate struct '{}'", structure.name), None));
                 }
             }
         }
@@ -72,19 +71,19 @@ impl<'a> Analyzer<'a> {
 
                 Item::Function(function) => {
                     if !functions.insert(function.name.as_str()) {
-                        return Err(self.error(format!("duplicate function '{}'", function.name)));
+                        return Err(self.error(format!("duplicate function '{}'", function.name), None));
                     }
 
                     if function.name == "main" {
                         main_count += 1;
 
                         if !function.params.is_empty() {
-                            return Err(self.error("main function cannot have parameters"));
+                            return Err(self.error("main function cannot have parameters", None));
                         }
 
                         if function.return_type.is_some() {
                             return Err(
-                                self.error("main function cannot have an explicit return type")
+                                self.error("main function cannot have an explicit return type", None)
                             );
                         }
                     }
@@ -94,18 +93,18 @@ impl<'a> Analyzer<'a> {
 
                 Item::Statement(_) => {
                     return Err(
-                        self.error("top-level statements are not allowed; expected a function")
+                        self.error("top-level statements are not allowed; expected a function", None)
                     );
                 }
             }
         }
 
         if main_count == 0 {
-            return Err(self.error("program must contain a 'main' function"));
+            return Err(self.error("program must contain a 'main' function", None));
         }
 
         if main_count > 1 {
-            return Err(self.error("program can only contain one 'main' function"));
+            return Err(self.error("program can only contain one 'main' function", None));
         }
 
         Ok(())
@@ -127,10 +126,9 @@ impl<'a> Analyzer<'a> {
                     return Err(self.error(format!(
                         "duplicate field '{}' in struct '{}'",
                         field.name, structure.name
-                    )));
+                    ), None));
                 }
 
-                // Struct fields cannot be Void.
                 self.validate_value_type(&field.ty, &struct_names)?;
             }
         }
@@ -150,7 +148,7 @@ impl<'a> Analyzer<'a> {
                 return Err(self.error(format!(
                     "duplicate parameter '{}' in function '{}'",
                     parameter.name, function.name
-                )));
+                ), None));
             }
 
             self.validate_value_type(&parameter.ty, struct_names)?;
@@ -165,17 +163,15 @@ impl<'a> Analyzer<'a> {
 
     fn validate_type(&self, ty: &Type, struct_names: &HashSet<&str>) -> Result<(), AlacoError> {
         match ty {
-            Type::Int | Type::Float | Type::Bool | Type::String | Type::Void => Ok(()),
-
-            Type::Void => {
-                Err(self.error("Void cannot be used as a variable, field, or parameter type"))
+            Type::Int | Type::Float | Type::Bool | Type::String | Type::Void | Type::Shell | Type::ShellResult => {
+                Ok(())
             }
 
             Type::Named(name) => {
                 if struct_names.contains(name.as_str()) {
                     Ok(())
                 } else {
-                    Err(self.error(format!("unknown type '{}'", name)))
+                    Err(self.error(format!("unknown type '{}'", name), None))
                 }
             }
         }
@@ -186,17 +182,7 @@ impl<'a> Analyzer<'a> {
         ty: &Type,
         struct_names: &HashSet<&str>,
     ) -> Result<(), AlacoError> {
-        match ty {
-            Type::Void | Type::Int | Type::Float | Type::Bool | Type::String => Ok(()),
-
-            Type::Named(name) => {
-                if struct_names.contains(name.as_str()) {
-                    Ok(())
-                } else {
-                    Err(self.error(format!("unknown type '{}'", name)))
-                }
-            }
-        }
+        self.validate_type(ty, struct_names)
     }
 
     fn validate_value_type(
@@ -204,14 +190,13 @@ impl<'a> Analyzer<'a> {
         ty: &Type,
         struct_names: &HashSet<&str>,
     ) -> Result<(), AlacoError> {
-        match ty {
-            Type::Void => {
-                Err(self
-                    .error("Void cannot be used as a variable, parameter, or struct field type"))
-            }
-
-            _ => self.validate_type(ty, struct_names),
+        if matches!(ty, Type::Void) {
+            return Err(
+                self.error("Void cannot be used as a variable, parameter, or struct field type", None)
+            );
         }
+
+        self.validate_type(ty, struct_names)
     }
 
     fn struct_names<'b>(&self, program: &'b Program) -> HashSet<&'b str> {
@@ -347,6 +332,7 @@ impl<'a> Analyzer<'a> {
 
         Ok(())
     }
+
     // ------------------------------------------------------------
     // Statements
     // ------------------------------------------------------------
@@ -366,6 +352,7 @@ impl<'a> Analyzer<'a> {
                 mutable,
                 ty,
                 value,
+                span: _,
             } => {
                 let value_type = self.type_of_expression(value, scopes, program, functions)?;
 
@@ -386,10 +373,7 @@ impl<'a> Analyzer<'a> {
                 let scope = scopes.last_mut().expect("analyzer scope stack is empty");
 
                 if scope.contains_key(name) {
-                    return Err(self.error(format!(
-                        "variable '{}' is already declared in this scope",
-                        name
-                    )));
+                    return Err(self.error(format!("variable '{}' is already declared in this scope", name), None));
                 }
 
                 scope.insert(
@@ -401,7 +385,7 @@ impl<'a> Analyzer<'a> {
                 );
             }
 
-            Stmt::Return(value) => {
+            Stmt::Return(value, _) => {
                 let actual_type = match value {
                     Some(value) => self.type_of_expression(value, scopes, program, functions)?,
 
@@ -411,9 +395,9 @@ impl<'a> Analyzer<'a> {
                 self.ensure_assignable(expected_return, &actual_type, "return value")?;
             }
 
-            Stmt::Stop(value) => {
+            Stmt::Stop(value, _) => {
                 if loop_depth == 0 {
-                    return Err(self.error("'stop' can only be used inside a loop"));
+                    return Err(self.error("'stop' can only be used inside a loop", None));
                 }
 
                 if let Some(value) = value {
@@ -421,9 +405,9 @@ impl<'a> Analyzer<'a> {
                 }
             }
 
-            Stmt::Skip => {
+            Stmt::Skip(_) => {
                 if loop_depth == 0 {
-                    return Err(self.error("'skip' can only be used inside a loop"));
+                    return Err(self.error("'skip' can only be used inside a loop", None));
                 }
             }
 
@@ -431,6 +415,7 @@ impl<'a> Analyzer<'a> {
                 condition,
                 then_block,
                 else_block,
+                span: _,
             } => {
                 let condition_type =
                     self.type_of_expression(condition, scopes, program, functions)?;
@@ -462,6 +447,7 @@ impl<'a> Analyzer<'a> {
                 kind,
                 binding,
                 body,
+                span: _,
             } => {
                 self.analyze_loop(
                     kind,
@@ -475,11 +461,11 @@ impl<'a> Analyzer<'a> {
                 )?;
             }
 
-            Stmt::Expr(expression) => {
+            Stmt::Expr(expression, _) => {
                 self.type_of_expression(expression, scopes, program, functions)?;
             }
 
-            Stmt::Match { expression, arms } => {
+            Stmt::Match { expression, arms, span: _ } => {
                 let expression_type =
                     self.type_of_expression(expression, scopes, program, functions)?;
 
@@ -541,7 +527,7 @@ impl<'a> Analyzer<'a> {
                 return Err(self.error(format!(
                     "'for' loops cannot iterate over '{}' yet",
                     self.type_name(&iterable_type)
-                )));
+                ), None));
             }
         }
 
@@ -584,7 +570,7 @@ impl<'a> Analyzer<'a> {
         functions: &HashMap<String, FunctionInfo>,
     ) -> Result<Type, AlacoError> {
         match expression {
-            Expr::Number(value) => {
+            Expr::Number(value, _) => {
                 if value.contains('.') {
                     Ok(Type::Float)
                 } else {
@@ -592,14 +578,24 @@ impl<'a> Analyzer<'a> {
                 }
             }
 
-            Expr::String(_) => Ok(Type::String),
+            Expr::String(_, _) => Ok(Type::String),
 
-            Expr::Bool(_) => Ok(Type::Bool),
+            Expr::Bool(_, _) => Ok(Type::Bool),
 
-            Expr::Identifier(name) => {
+            // Shell expressions are first-class values.
+            //
+            // Example:
+            //
+            // let say_hello = shell(
+            //     echo "Hi!"
+            // );
+            //
+            Expr::Shell { .. } => Ok(Type::Shell),
+
+            Expr::Identifier(name, _) => {
                 if self.is_builtin(name) {
                     return Err(
-                        self.error(format!("'{}' is a builtin function, not a value", name))
+                        self.error(format!("'{}' is a builtin function, not a value", name), None)
                     );
                 }
 
@@ -609,18 +605,18 @@ impl<'a> Analyzer<'a> {
 
                 if functions.contains_key(name) {
                     return Err(
-                        self.error(format!("function '{}' cannot be used as a value", name))
+                        self.error(format!("function '{}' cannot be used as a value", name), None)
                     );
                 }
 
-                Err(self.error(format!("use of undefined variable '{}'", name)))
+                Err(self.error(format!("use of undefined variable '{}'", name), None))
             }
 
-            Expr::StructLiteral { name, fields } => {
+            Expr::StructLiteral { name, fields, span: _ } => {
                 self.type_of_struct_literal(name, fields, program, scopes, functions)
             }
 
-            Expr::Unary { operator, operand } => {
+            Expr::Unary { operator, operand, span: _ } => {
                 let operand_type = self.type_of_expression(operand, scopes, program, functions)?;
 
                 match operator {
@@ -629,7 +625,7 @@ impl<'a> Analyzer<'a> {
                             return Err(self.error(format!(
                                 "cannot negate {}",
                                 self.type_name(&operand_type)
-                            )));
+                            ), None));
                         }
 
                         Ok(operand_type)
@@ -641,13 +637,14 @@ impl<'a> Analyzer<'a> {
                 left,
                 operator,
                 right,
+                span: _,
             } => self.type_of_binary(left, *operator, right, scopes, program, functions),
 
-            Expr::Call { callee, arguments } => {
+            Expr::Call { callee, arguments, span: _ } => {
                 self.type_of_call(callee, arguments, scopes, program, functions)
             }
 
-            Expr::Member { object, member } => {
+            Expr::Member { object, member, span: _ } => {
                 let object_type = self.type_of_expression(object, scopes, program, functions)?;
 
                 self.type_of_member(&object_type, member, program)
@@ -669,16 +666,13 @@ impl<'a> Analyzer<'a> {
     ) -> Result<Type, AlacoError> {
         let structure = self
             .find_struct(program, name)
-            .ok_or_else(|| self.error(format!("unknown struct '{}'", name)))?;
+            .ok_or_else(|| self.error(format!("unknown struct '{}'", name), None))?;
 
         let mut supplied = HashSet::new();
 
         for (field_name, value) in fields {
             if !supplied.insert(field_name.as_str()) {
-                return Err(self.error(format!(
-                    "field '{}' is specified more than once",
-                    field_name
-                )));
+                return Err(self.error(format!("field '{}' is specified more than once", field_name), None));
             }
 
             let field = structure
@@ -686,7 +680,7 @@ impl<'a> Analyzer<'a> {
                 .iter()
                 .find(|field| field.name == *field_name)
                 .ok_or_else(|| {
-                    self.error(format!("struct '{}' has no field '{}'", name, field_name))
+                    self.error(format!("struct '{}' has no field '{}'", name, field_name), None)
                 })?;
 
             let actual_type = self.type_of_expression(value, scopes, program, functions)?;
@@ -703,7 +697,7 @@ impl<'a> Analyzer<'a> {
                 return Err(self.error(format!(
                     "missing field '{}' in struct literal '{}'",
                     field.name, name
-                )));
+                ), None));
             }
         }
 
@@ -720,23 +714,38 @@ impl<'a> Analyzer<'a> {
             Type::Named(name) => {
                 let structure = self
                     .find_struct(program, name)
-                    .ok_or_else(|| self.error(format!("unknown type '{}'", name)))?;
+                    .ok_or_else(|| self.error(format!("unknown type '{}'", name), None))?;
 
                 let field = structure
                     .fields
                     .iter()
                     .find(|field| field.name == member)
                     .ok_or_else(|| {
-                        self.error(format!("struct '{}' has no field '{}'", name, member))
+                        self.error(format!("struct '{}' has no field '{}'", name, member), None)
                     })?;
 
                 Ok(field.ty.clone())
             }
 
+            Type::Shell => {
+                if member == "get" {
+                    Ok(Type::ShellResult)
+                } else {
+                    Err(self.error(format!("type 'Shell' has no member '{}'", member), None))
+                }
+            }
+
+            Type::ShellResult => match member {
+                "output" => Ok(Type::String),
+                "status" => Ok(Type::Int),
+                "success" => Ok(Type::Bool),
+                _ => Err(self.error(format!("type 'ShellResult' has no member '{}'", member), None)),
+            },
+
             _ => Err(self.error(format!(
                 "type '{}' has no members",
                 self.type_name(object_type)
-            ))),
+            ), None)),
         }
     }
 
@@ -760,7 +769,7 @@ impl<'a> Analyzer<'a> {
         program: &Program,
         functions: &HashMap<String, FunctionInfo>,
     ) -> Result<Type, AlacoError> {
-        if let Expr::Identifier(name) = callee {
+        if let Expr::Identifier(name, _) = callee {
             if name == "print" {
                 for argument in arguments {
                     self.type_of_expression(argument, scopes, program, functions)?;
@@ -771,7 +780,7 @@ impl<'a> Analyzer<'a> {
 
             let function = functions
                 .get(name)
-                .ok_or_else(|| self.error(format!("unknown function '{}'", name)))?;
+                .ok_or_else(|| self.error(format!("unknown function '{}'", name), None))?;
 
             if arguments.len() != function.params.len() {
                 return Err(self.error(format!(
@@ -779,7 +788,7 @@ impl<'a> Analyzer<'a> {
                     name,
                     function.params.len(),
                     arguments.len()
-                )));
+                ), None));
             }
 
             for (index, argument) in arguments.iter().enumerate() {
@@ -795,13 +804,11 @@ impl<'a> Analyzer<'a> {
             return Ok(function.return_type.clone());
         }
 
-        if let Expr::Member { object, member } = callee {
-            if let Expr::Identifier(alias) = object.as_ref() {
+        if let Expr::Member { object, member, span: _ } = callee {
+            if let Expr::Identifier(alias, _) = object.as_ref() {
                 if let Some(module) = self.find_module(alias) {
                     if !Self::module_has_function(module, member) {
-                        return Err(
-                            self.error(format!("module '{}' has no function '{}'", alias, member))
-                        );
+                        return Err(self.error(format!("module '{}' has no function '{}'", alias, member), None));
                     }
 
                     for argument in arguments {
@@ -811,6 +818,15 @@ impl<'a> Analyzer<'a> {
                     return Ok(Type::Void);
                 }
             }
+
+            let object_type = self.type_of_expression(object, scopes, program, functions)?;
+            let member_type = self.type_of_member(&object_type, member, program)?;
+
+            for argument in arguments {
+                self.type_of_expression(argument, scopes, program, functions)?;
+            }
+
+            return Ok(member_type);
         }
 
         let callee_type = self.type_of_expression(callee, scopes, program, functions)?;
@@ -818,7 +834,7 @@ impl<'a> Analyzer<'a> {
         Err(self.error(format!(
             "cannot call value of type '{}'",
             self.type_name(&callee_type)
-        )))
+        ), None))
     }
 
     // ------------------------------------------------------------
@@ -865,7 +881,9 @@ impl<'a> Analyzer<'a> {
             | BinaryOp::Subtract
             | BinaryOp::Multiply
             | BinaryOp::Divide
-            | BinaryOp::Modulo => {
+            | BinaryOp::Modulo
+            | BinaryOp::And
+            | BinaryOp::Or => {
                 if operator == BinaryOp::Add
                     && left_type == Type::String
                     && right_type == Type::String
@@ -888,7 +906,7 @@ impl<'a> Analyzer<'a> {
                         "cannot compare {} and {}",
                         self.type_name(&left_type),
                         self.type_name(&right_type)
-                    )));
+                    ), None));
                 }
 
                 Ok(Type::Bool)
@@ -912,16 +930,16 @@ impl<'a> Analyzer<'a> {
         scopes: &mut Vec<HashMap<String, Variable>>,
     ) -> Result<(), AlacoError> {
         match expression {
-            Expr::Identifier(name) => {
+            Expr::Identifier(name, _) => {
                 let Some(variable) = self.find_variable(scopes, name) else {
                     return Err(
-                        self.error(format!("cannot assign to undefined variable '{}'", name))
+                        self.error(format!("cannot assign to undefined variable '{}'", name), None)
                     );
                 };
 
                 if !variable.mutable {
                     return Err(
-                        self.error(format!("cannot assign to immutable variable '{}'", name))
+                        self.error(format!("cannot assign to immutable variable '{}'", name), None)
                     );
                 }
             }
@@ -931,7 +949,7 @@ impl<'a> Analyzer<'a> {
             }
 
             _ => {
-                return Err(self.error("invalid assignment target"));
+                return Err(self.error("invalid assignment target", None));
             }
         }
 
@@ -944,19 +962,13 @@ impl<'a> Analyzer<'a> {
         scopes: &mut Vec<HashMap<String, Variable>>,
     ) -> Result<(), AlacoError> {
         match object {
-            Expr::Identifier(name) => {
+            Expr::Identifier(name, _) => {
                 let Some(variable) = self.find_variable(scopes, name) else {
-                    return Err(self.error(format!(
-                        "cannot assign through undefined variable '{}'",
-                        name
-                    )));
+                    return Err(self.error(format!("cannot assign through undefined variable '{}'", name), None));
                 };
 
                 if !variable.mutable {
-                    return Err(self.error(format!(
-                        "cannot modify field through immutable variable '{}'",
-                        name
-                    )));
+                    return Err(self.error(format!("cannot modify field through immutable variable '{}'", name), None));
                 }
 
                 Ok(())
@@ -983,7 +995,7 @@ impl<'a> Analyzer<'a> {
                     return Err(self.error(format!(
                         "numeric match pattern cannot match {}",
                         self.type_name(expression_type)
-                    )));
+                    ), None));
                 }
             }
 
@@ -1019,7 +1031,7 @@ impl<'a> Analyzer<'a> {
                 context,
                 self.type_name(expected),
                 self.type_name(actual)
-            )))
+            ), None))
         }
     }
 
@@ -1059,7 +1071,7 @@ impl<'a> Analyzer<'a> {
                 "numeric operation requires numeric values, found {} and {}",
                 self.type_name(left),
                 self.type_name(right)
-            )))
+            ), None))
         }
     }
 
@@ -1073,6 +1085,8 @@ impl<'a> Analyzer<'a> {
             Type::Float => "Float".to_string(),
             Type::Bool => "Bool".to_string(),
             Type::String => "String".to_string(),
+            Type::Shell => "Shell".to_string(),
+            Type::ShellResult => "ShellResult".to_string(),
             Type::Void => "Void".to_string(),
             Type::Named(name) => name.clone(),
         }
@@ -1108,10 +1122,10 @@ impl<'a> Analyzer<'a> {
         matches!(name, "print")
     }
 
-    fn error(&self, message: impl Into<String>) -> AlacoError {
+    fn error(&self, message: impl Into<String>, span: Option<Span>) -> AlacoError {
         AlacoError::Analysis {
             message: message.into(),
-            span: None,
+            span: span.map(Into::into),
         }
     }
 }

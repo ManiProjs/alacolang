@@ -161,12 +161,31 @@ pub enum AlacoError {
         span: SourceSpan,
     },
 
-    #[error("duplicate function `{name}`")]
-    #[diagnostic(code(alaco::analysis::duplicate_function))]
-    DuplicateFunction {
+    #[error("duplicate struct `{name}`")]
+    #[diagnostic(code(alaco::analysis::duplicate_struct))]
+    DuplicateStruct {
         name: String,
 
-        #[label("duplicate function")]
+        #[label("duplicate struct")]
+        span: SourceSpan,
+    },
+
+    #[error("duplicate field `{field}` in struct `{struct_name}`")]
+    #[diagnostic(code(alaco::analysis::duplicate_field))]
+    DuplicateField {
+        field: String,
+        struct_name: String,
+
+        #[label("duplicate field")]
+        span: SourceSpan,
+    },
+
+    #[error("unknown type `{name}`")]
+    #[diagnostic(code(alaco::analysis::unknown_type))]
+    UnknownType {
+        name: String,
+
+        #[label("unknown type")]
         span: SourceSpan,
     },
 
@@ -280,6 +299,21 @@ impl AlacoError {
                 "Remove the duplicate declaration or use a different variable name.".into(),
             )),
 
+            Self::DuplicateStruct { name, .. } => Some((
+                format!("Duplicate struct '{}' found.", name),
+                "Ensure that struct names are unique within the program.".into(),
+            )),
+
+            Self::DuplicateField { field, struct_name, .. } => Some((
+                format!("Field '{}' is already defined in struct '{}'.", field, struct_name),
+                "Ensure that each field in a struct has a unique name.".into(),
+            )),
+
+            Self::UnknownType { name, .. } => Some((
+                format!("Unknown type '{}' used.", name),
+                format!("Make sure '{}' is defined as a struct or is a built-in type.", name),
+            )),
+
             Self::ImmutableAssignment { name, .. } => Some((
                 format!(
                     "`{name}` was declared as immutable, so it cannot be assigned a new value."
@@ -321,13 +355,6 @@ impl AlacoError {
                     "The function `{function}` declares the parameter `{name}` more than once."
                 ),
                 "Give each parameter a unique name.".into(),
-            )),
-
-            Self::DuplicateFunction { name, .. } => Some((
-                format!(
-                    "The function `{name}` has been declared more than once."
-                ),
-                "Remove the duplicate function or rename one of the functions.".into(),
             )),
 
             Self::MissingMain => Some((

@@ -147,7 +147,7 @@ impl<'a> Lexer<'a> {
 
             // Identifier / keyword
             'a'..='z' | 'A'..='Z' | '_' => {
-                self.scan_identifier();
+                self.scan_identifier()?;
             }
 
             // Anything else
@@ -242,18 +242,6 @@ impl<'a> Lexer<'a> {
 
         let mut is_float = false;
 
-        // Check for decimal part.
-        //
-        // Only treat '.' as part of the number when it is
-        // followed by a digit. This means:
-        //
-        //     123.foo
-        //
-        // is tokenized as:
-        //
-        //     123 . foo
-        //
-        // instead of an invalid float.
         if self.peek_char() == Some('.')
             && self.peek_next_char().is_some_and(|c| c.is_ascii_digit())
         {
@@ -264,14 +252,6 @@ impl<'a> Lexer<'a> {
             self.consume_digits();
         }
 
-        // Reject things such as:
-        //
-        //     123abc
-        //
-        // instead of silently tokenizing them as:
-        //
-        //     123 abc
-        //
         if self
             .peek_char()
             .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
@@ -316,7 +296,7 @@ impl<'a> Lexer<'a> {
         Ok(())
     }
 
-    fn scan_identifier(&mut self) {
+    fn scan_identifier(&mut self) -> Result<(), AlacoError> {
         while self
             .peek_char()
             .is_some_and(|c| c.is_ascii_alphanumeric() || c == '_')
@@ -326,29 +306,111 @@ impl<'a> Lexer<'a> {
 
         let text = &self.source[self.start..self.current];
 
-        let kind = match text {
-            "import" => TokenKind::Import,
-            "fn" => TokenKind::Fn,
-            "let" => TokenKind::Let,
-            "mut" => TokenKind::Mut,
-            "return" => TokenKind::Return,
-            "stop" => TokenKind::Stop,
-            "skip" => TokenKind::Skip,
-            "loop" => TokenKind::Loop,
-            "repeat" => TokenKind::Repeat,
-            "while" => TokenKind::While,
-            "for" => TokenKind::For,
-            "in" => TokenKind::In,
-            "if" => TokenKind::If,
-            "else" => TokenKind::Else,
-            "true" => TokenKind::True,
-            "false" => TokenKind::False,
-            "match" => TokenKind::Match,
-            "struct" => TokenKind::Struct,
-            _ => TokenKind::Identifier(text.to_string()),
-        };
+        match text {
+            "import" => self.add_token(TokenKind::Import),
+            "fn" => self.add_token(TokenKind::Fn),
+            "let" => self.add_token(TokenKind::Let),
+            "mut" => self.add_token(TokenKind::Mut),
+            "return" => self.add_token(TokenKind::Return),
+            "stop" => self.add_token(TokenKind::Stop),
+            "skip" => self.add_token(TokenKind::Skip),
+            "loop" => self.add_token(TokenKind::Loop),
+            "repeat" => self.add_token(TokenKind::Repeat),
+            "while" => self.add_token(TokenKind::While),
+            "for" => self.add_token(TokenKind::For),
+            "in" => self.add_token(TokenKind::In),
+            "if" => self.add_token(TokenKind::If),
+            "else" => self.add_token(TokenKind::Else),
+            "true" => self.add_token(TokenKind::True),
+            "false" => self.add_token(TokenKind::False),
+            "match" => self.add_token(TokenKind::Match),
+            "struct" => self.add_token(TokenKind::Struct),
 
-        self.add_token(kind);
+            "shell" => {
+                self.scan_shell_or_keyword()?;
+            }
+
+            _ => {
+                self.add_token(TokenKind::Identifier(text.to_string()));
+            }
+        }
+
+        Ok(())
+    }
+
+    fn scan_shell_or_keyword(&mut self) -> Result<(), AlacoError> {
+        // We have already consumed "shell".
+
+        let after_shell = self.current;
+
+        // Skip spaces/tabs/carriage returns between `shell` and `{`.
+        while matches!(self.peek_char(), Some(' ' | '\t' | '\r')) {
+            self.advance_char();
+        }
+
+        if self.peek_char() != Some('{') {
+            // Not `shell { ... }`, so it is just the normal Shell keyword.
+            self.current = after_shell;
+            self.add_token(TokenKind::Shell);
+            return Ok(());
+        }
+
+        // Consume `{`.
+        self.advance_char();
+
+        let body_start = self.current;
+
+        let mut body_end = None;
+        let mut escaped = false;
+        let mut in_single_quote = false;
+        let mut in_double_quote = false;
+
+        while let Some((index, ch)) = self.chars.next() {
+            self.current = index + ch.len_utf8();
+
+            if escaped {
+                escaped = false;
+                continue;
+            }
+
+            if ch == '\\' {
+                escaped = true;
+                continue;
+            }
+
+            if ch == '"' && !in_single_quote {
+                in_double_quote = !in_double_quote;
+                continue;
+            }
+
+            if ch == '\'' && !in_double_quote {
+                in_single_quote = !in_single_quote;
+                continue;
+            }
+
+            if ch == '}' && !in_single_quote && !in_double_quote {
+                body_end = Some(index);
+                break;
+            }
+        }
+
+        let body_end = body_end.ok_or_else(|| AlacoError::UnexpectedCharacter {
+            character: '{',
+            span: self.span(),
+        })?;
+
+        let command = self.source[body_start..body_end].to_string();
+
+        let shell_start = self.start;
+
+        self.tokens.push(Token::new(
+            TokenKind::ShellBlock(command),
+            self.source[shell_start..self.current].to_string(),
+            shell_start,
+            self.current - shell_start,
+        ));
+
+        Ok(())
     }
 
     fn skip_line_comment(&mut self) {

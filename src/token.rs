@@ -2,9 +2,8 @@ use miette::SourceSpan;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenKind {
-    Import,
-
     // Keywords
+    Import,
     Fn,
     Let,
     Mut,
@@ -22,8 +21,14 @@ pub enum TokenKind {
     False,
     Match,
     Struct,
+    Shell,
+    And,
+    Or,
 
-    // Identifiers and literals
+    // Shell
+    ShellBlock(String),
+
+    // Literals
     Identifier(String),
     Integer(i64),
     Float(f64),
@@ -35,22 +40,18 @@ pub enum TokenKind {
     Star,
     Slash,
     Percent,
-
     Equal,
     PlusEqual,
     MinusEqual,
     StarEqual,
     SlashEqual,
-
     EqualEqual,
     Bang,
     BangEqual,
-
     Less,
     LessEqual,
     Greater,
     GreaterEqual,
-
     Arrow,
 
     // Punctuation
@@ -66,7 +67,6 @@ pub enum TokenKind {
     // Layout
     Newline,
 
-    // End
     Eof,
 }
 

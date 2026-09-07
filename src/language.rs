@@ -40,6 +40,8 @@ binary_ops! {
     Multiply       => Star          => "*",
     Divide         => Slash        => "/",
     Modulo         => Percent      => "%",
+    And            => And           => "&&",
+    Or             => Or            => "||",
 
     Equal          => EqualEqual   => "==",
     NotEqual       => BangEqual    => "!=",

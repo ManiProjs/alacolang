@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{f32::consts::E, sync::Arc};
 
 use miette::NamedSource;
 
@@ -29,6 +29,7 @@ impl Parser {
 
     pub fn parse(&mut self) -> Result<Program, AlacoError> {
         let mut items = Vec::new();
+
         self.skip_newlines();
 
         while !self.is_at_end() {
@@ -214,21 +215,60 @@ impl Parser {
         Ok(Block { statements })
     }
 
+    fn parse_shell_block(&mut self) -> Result<String, AlacoError> {
+        self.consume(&TokenKind::LeftBrace, "expected '{' after 'shell'")?;
+
+        let mut command = String::new();
+
+        while !self.check(&TokenKind::RightBrace) && !self.is_at_end() {
+            let token = self.advance().clone();
+
+            match token.kind {
+                TokenKind::Newline => {
+                    command.push('\n');
+                }
+
+                _ => {
+                    if !command.is_empty()
+                        && !command.ends_with('\n')
+                        && !matches!(
+                            token.kind,
+                            TokenKind::Comma
+                                | TokenKind::Dot
+                                | TokenKind::Colon
+                                | TokenKind::Semicolon
+                                | TokenKind::RightParen
+                        )
+                    {
+                        command.push(' ');
+                    }
+
+                    command.push_str(&token.lexeme);
+                }
+            }
+        }
+
+        self.consume(&TokenKind::RightBrace, "expected '}' after shell block")?;
+
+        Ok(command.trim().to_string())
+    }
+
     fn parse_statement(&mut self) -> Result<Stmt, AlacoError> {
+        let span = self.token_span(self.peek());
         match self.peek().kind.clone() {
             TokenKind::Let => self.parse_let_statement(),
             TokenKind::Return => self.parse_return_statement(),
             TokenKind::Stop => self.parse_stop_statement(),
             TokenKind::Skip => {
                 self.advance();
-                Ok(Stmt::Skip)
+                Ok(Stmt::Skip(span))
             }
             TokenKind::Loop => self.parse_loop_statement(),
             TokenKind::If => self.parse_if_statement(),
             TokenKind::Match => self.parse_match_statement(),
             _ => {
                 let expression = self.parse_expression()?;
-                Ok(Stmt::Expr(expression))
+                Ok(Stmt::Expr(expression, span))
             }
         }
     }
@@ -255,31 +295,38 @@ impl Parser {
             mutable,
             ty,
             value,
+            span: self.token_span(self.previous()),
         })
     }
 
     fn parse_return_statement(&mut self) -> Result<Stmt, AlacoError> {
         self.consume(&TokenKind::Return, "expected 'return'")?;
 
+        let span = self.token_span(self.previous());
+
         if self.is_statement_end() {
-            Ok(Stmt::Return(None))
+            Ok(Stmt::Return(None, span))
         } else {
-            Ok(Stmt::Return(Some(self.parse_expression()?)))
+            Ok(Stmt::Return(Some(self.parse_expression()?), span))
         }
     }
 
     fn parse_stop_statement(&mut self) -> Result<Stmt, AlacoError> {
         self.consume(&TokenKind::Stop, "expected 'stop'")?;
 
+        let span = self.token_span(self.previous());
+
         if self.is_statement_end() {
-            Ok(Stmt::Stop(None))
+            Ok(Stmt::Stop(None, span))
         } else {
-            Ok(Stmt::Stop(Some(self.parse_expression()?)))
+            Ok(Stmt::Stop(Some(self.parse_expression()?), span))
         }
     }
 
     fn parse_if_statement(&mut self) -> Result<Stmt, AlacoError> {
         self.consume(&TokenKind::If, "expected 'if'")?;
+
+        let span = self.token_span(self.previous());
 
         let condition = self.parse_expression()?;
 
@@ -311,11 +358,14 @@ impl Parser {
             condition,
             then_block,
             else_block,
+            span,
         })
     }
 
     fn parse_match_statement(&mut self) -> Result<Stmt, AlacoError> {
         self.consume(&TokenKind::Match, "expected 'match'")?;
+
+        let span = self.token_span(self.previous());
 
         let expression = self.parse_expression()?;
 
@@ -362,7 +412,11 @@ impl Parser {
 
         self.consume(&TokenKind::RightBrace, "expected '}' after match arms")?;
 
-        Ok(Stmt::Match { expression, arms })
+        Ok(Stmt::Match {
+            expression,
+            arms,
+            span,
+        })
     }
 
     fn parse_match_pattern(&mut self) -> Result<MatchPattern, AlacoError> {
@@ -409,6 +463,8 @@ impl Parser {
     fn parse_loop_statement(&mut self) -> Result<Stmt, AlacoError> {
         self.consume(&TokenKind::Loop, "expected 'loop'")?;
 
+        let span = self.token_span(self.previous());
+
         let kind = if self.matches(&TokenKind::LeftParen) {
             let kind = if self.matches(&TokenKind::Repeat) {
                 LoopKind::Repeat(self.parse_expression()?)
@@ -433,6 +489,7 @@ impl Parser {
             kind,
             binding: None,
             body,
+            span,
         })
     }
 
@@ -459,11 +516,13 @@ impl Parser {
 
         if let Some(operator) = operator {
             let value = self.parse_assignment()?;
+            let span = self.token_span(self.previous());
 
             Ok(Expr::Binary {
                 left: Box::new(expression),
                 operator,
                 right: Box::new(value),
+                span,
             })
         } else {
             Ok(expression)
@@ -486,11 +545,13 @@ impl Parser {
             };
 
             let right = self.parse_comparison()?;
+            let span = self.token_span(self.previous());
 
             expression = Expr::Binary {
                 left: Box::new(expression),
                 operator,
                 right: Box::new(right),
+                span,
             };
         }
 
@@ -519,11 +580,13 @@ impl Parser {
             };
 
             let right = self.parse_term()?;
+            let span = self.token_span(self.previous());
 
             expression = Expr::Binary {
                 left: Box::new(expression),
                 operator,
                 right: Box::new(right),
+                span,
             };
         }
 
@@ -546,11 +609,13 @@ impl Parser {
             };
 
             let right = self.parse_factor()?;
+            let span = self.token_span(self.previous());
 
             expression = Expr::Binary {
                 left: Box::new(expression),
                 operator,
                 right: Box::new(right),
+                span,
             };
         }
 
@@ -576,11 +641,13 @@ impl Parser {
             };
 
             let right = self.parse_unary()?;
+            let span = self.token_span(self.previous());
 
             expression = Expr::Binary {
                 left: Box::new(expression),
                 operator,
                 right: Box::new(right),
+                span,
             };
         }
 
@@ -590,10 +657,12 @@ impl Parser {
     fn parse_unary(&mut self) -> Result<Expr, AlacoError> {
         if self.matches(&TokenKind::Minus) {
             let operand = self.parse_unary()?;
+            let span = self.token_span(self.previous());
 
             return Ok(Expr::Unary {
                 operator: UnaryOp::Negate,
                 operand: Box::new(operand),
+                span,
             });
         }
 
@@ -625,6 +694,7 @@ impl Parser {
                 expression = Expr::Call {
                     callee: Box::new(expression),
                     arguments,
+                    span: self.token_span(self.previous()),
                 };
             } else if self.matches(&TokenKind::Dot) {
                 let member = self.consume_identifier("expected member name after '.'")?;
@@ -632,6 +702,7 @@ impl Parser {
                 expression = Expr::Member {
                     object: Box::new(expression),
                     member,
+                    span: self.token_span(self.previous()),
                 };
             } else {
                 break;
@@ -642,30 +713,36 @@ impl Parser {
     }
 
     fn parse_primary(&mut self) -> Result<Expr, AlacoError> {
+        let span = self.token_span(self.peek());
         match self.peek().kind.clone() {
             TokenKind::Integer(value) => {
                 self.advance();
-                Ok(Expr::Number(value.to_string()))
+                Ok(Expr::Number(value.to_string(), span))
             }
 
             TokenKind::Float(value) => {
                 self.advance();
-                Ok(Expr::Number(value.to_string()))
+                Ok(Expr::Number(value.to_string(), span))
             }
 
             TokenKind::String(value) => {
                 self.advance();
-                Ok(Expr::String(value))
+                Ok(Expr::String(value, span))
             }
 
             TokenKind::True => {
                 self.advance();
-                Ok(Expr::Bool(true))
+                Ok(Expr::Bool(true, span))
             }
 
             TokenKind::False => {
                 self.advance();
-                Ok(Expr::Bool(false))
+                Ok(Expr::Bool(false, span))
+            }
+
+            TokenKind::ShellBlock(command) => {
+                self.advance();
+                Ok(Expr::Shell { command, span })
             }
 
             TokenKind::Identifier(name) => {
@@ -720,10 +797,10 @@ impl Parser {
 
                     self.consume(&TokenKind::RightBrace, "expected '}' after struct literal")?;
 
-                    return Ok(Expr::StructLiteral { name, fields });
+                    return Ok(Expr::StructLiteral { name, fields, span });
                 }
 
-                Ok(Expr::Identifier(name))
+                Ok(Expr::Identifier(name, span))
             }
 
             TokenKind::LeftParen => {
@@ -811,7 +888,18 @@ impl Parser {
     }
 
     fn is_at_end(&self) -> bool {
-        matches!(self.peek().kind, TokenKind::Eof)
+        self.current >= self.tokens.len()
+            || matches!(
+                self.tokens.get(self.current).map(|token| &token.kind),
+                Some(TokenKind::Eof)
+            )
+    }
+
+    fn token_span(&self, token: &Token) -> Span {
+        Span {
+            start: token.span.offset(),
+            end: token.span.offset() + token.span.len(),
+        }
     }
 
     fn peek(&self) -> &Token {
@@ -823,7 +911,9 @@ impl Parser {
     }
 
     fn skip_newlines(&mut self) {
-        while self.matches(&TokenKind::Newline) {}
+        while self.check(&TokenKind::Newline) {
+            self.advance();
+        }
     }
 
     fn error(&self, expected: impl Into<String>) -> AlacoError {
