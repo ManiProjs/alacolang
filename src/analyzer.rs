@@ -747,11 +747,11 @@ impl<'a> Analyzer<'a> {
             Expr::Member {
                 object,
                 member,
-                span: _,
+                span,
             } => {
                 let object_type = self.type_of_expression(object, scopes, program, functions)?;
 
-                self.type_of_member(&object_type, member, program)
+                self.type_of_member(&object_type, member, program, *span)
             }
 
             Expr::Intrinsic {
@@ -825,10 +825,18 @@ impl<'a> Analyzer<'a> {
                 .iter()
                 .find(|field| field.name == *field_name)
                 .ok_or_else(|| {
-                    self.error(
-                        format!("struct '{}' has no field '{}'", name, field_name),
-                        None,
-                    )
+                    let suggestion = closest_name(
+                        field_name,
+                        structure.fields.iter().map(|field| field.name.as_str()),
+                    );
+                    let message = match suggestion {
+                        Some(suggestion) => format!(
+                            "struct '{}' has no field '{}'; did you mean '{}'?",
+                            name, field_name, suggestion
+                        ),
+                        None => format!("struct '{}' has no field '{}'", name, field_name),
+                    };
+                    self.error(message, None)
                 })?;
 
             let actual_type = self.type_of_expression(value, scopes, program, functions)?;
@@ -860,6 +868,7 @@ impl<'a> Analyzer<'a> {
         object_type: &Type,
         member: &str,
         program: &Program,
+        span: Span,
     ) -> Result<Type, AlacoError> {
         match object_type {
             Type::Named(name) => {
@@ -872,7 +881,18 @@ impl<'a> Analyzer<'a> {
                     .iter()
                     .find(|field| field.name == member)
                     .ok_or_else(|| {
-                        self.error(format!("struct '{}' has no field '{}'", name, member), None)
+                        let suggestion = closest_name(
+                            member,
+                            structure.fields.iter().map(|field| field.name.as_str()),
+                        );
+                        let message = match suggestion {
+                            Some(suggestion) => format!(
+                                "struct '{}' has no field '{}'; did you mean '{}'?",
+                                name, member, suggestion
+                            ),
+                            None => format!("struct '{}' has no field '{}'", name, member),
+                        };
+                        self.error(message, Some(span))
                     })?;
 
                 Ok(field.ty.clone())
@@ -935,8 +955,8 @@ impl<'a> Analyzer<'a> {
                 self.error(message, Some(*span))
             })?;
 
-            // Printing is intentionally polymorphic: its implementation is
-            // supplied by the C++ runtime, not by a String-only stdlib wrapper.
+            // Printing is intentionally polymorphic: the runtime provides
+            // formatting for built-in and user-defined value types.
             if matches!(name.as_str(), "print" | "println" | "eprint" | "eprintln") {
                 if arguments.len() != 1 {
                     return Err(self.error(
@@ -949,7 +969,7 @@ impl<'a> Analyzer<'a> {
                     ));
                 }
                 let actual = self.type_of_expression(&arguments[0], scopes, program, functions)?;
-                if matches!(actual, Type::Void) {
+                if actual == Type::Void {
                     return Err(self.error(
                         "cannot print a value of type 'Void'",
                         Some(arguments[0].span()),
@@ -987,7 +1007,7 @@ impl<'a> Analyzer<'a> {
         if let Expr::Member {
             object,
             member,
-            span: _,
+            span,
         } = callee
         {
             if let Expr::Identifier(alias, _) = object.as_ref() {
@@ -1001,10 +1021,21 @@ impl<'a> Analyzer<'a> {
                             _ => None,
                         })
                         .ok_or_else(|| {
-                            self.error(
-                                format!("module '{}' has no function '{}'", alias, member),
-                                Some(callee.span()),
-                            )
+                            let suggestion = closest_name(
+                                member,
+                                module.program.items.iter().filter_map(|item| match item {
+                                    Item::Function(function) => Some(function.name.as_str()),
+                                    _ => None,
+                                }),
+                            );
+                            let message = match suggestion {
+                                Some(suggestion) => format!(
+                                    "module '{}' has no function '{}'; did you mean '{}.{}'?",
+                                    alias, member, alias, suggestion
+                                ),
+                                None => format!("module '{}' has no function '{}'", alias, member),
+                            };
+                            self.error(message, Some(callee.span()))
                         })?;
 
                     if arguments.len() != function.params.len() {
@@ -1038,7 +1069,7 @@ impl<'a> Analyzer<'a> {
             }
 
             let object_type = self.type_of_expression(object, scopes, program, functions)?;
-            let member_type = self.type_of_member(&object_type, member, program)?;
+            let member_type = self.type_of_member(&object_type, member, program, *span)?;
 
             for argument in arguments {
                 self.type_of_expression(argument, scopes, program, functions)?;
@@ -1376,16 +1407,13 @@ impl<'a> Analyzer<'a> {
         name: &str,
         functions: &HashMap<String, FunctionInfo>,
     ) -> Option<String> {
-        let candidates = functions
-            .keys()
-            .filter(|candidate| !candidate.starts_with("__builtin_"))
-            .map(|candidate| (edit_distance(name, candidate), candidate));
-
-        let (distance, candidate) =
-            candidates.min_by_key(|(distance, candidate)| (*distance, candidate.as_str()))?;
-
-        let threshold = (name.chars().count() / 3).max(2);
-        (distance <= threshold).then(|| candidate.clone())
+        closest_name(
+            name,
+            functions
+                .keys()
+                .filter(|candidate| !candidate.starts_with("__builtin_"))
+                .map(String::as_str),
+        )
     }
 
     fn error(&self, message: impl Into<String>, span: Option<Span>) -> AlacoError {
@@ -1415,4 +1443,13 @@ fn edit_distance(left: &str, right: &str) -> usize {
     }
 
     previous[right.len()]
+}
+
+fn closest_name<'a>(name: &str, candidates: impl Iterator<Item = &'a str>) -> Option<String> {
+    let (distance, candidate) = candidates
+        .map(|candidate| (edit_distance(name, candidate), candidate))
+        .min_by_key(|(distance, candidate)| (*distance, *candidate))?;
+
+    let threshold = (name.chars().count() / 3).max(2);
+    (distance <= threshold).then(|| candidate.to_string())
 }

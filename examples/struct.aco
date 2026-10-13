@@ -10,4 +10,5 @@ fn main() {
     }
 
     print(user.name)
+    print(user)
 }

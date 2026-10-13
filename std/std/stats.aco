@@ -1,0 +1,35 @@
+fn sum3(a: Int, b: Int, c: Int) -> Int {
+    return a + b + c;
+}
+
+fn average2(a: Int, b: Int) -> Int {
+    return (a + b) / 2;
+}
+
+fn average3(a: Int, b: Int, c: Int) -> Int {
+    return (a + b + c) / 3;
+}
+
+fn min2(a: Int, b: Int) -> Int {
+    if a < b {
+        return a;
+    }
+    return b;
+}
+
+fn max2(a: Int, b: Int) -> Int {
+    if a > b {
+        return a;
+    }
+    return b;
+}
+
+fn min3(a: Int, b: Int, c: Int) -> Int {
+    let first = min2(a, b);
+    return min2(first, c);
+}
+
+fn max3(a: Int, b: Int, c: Int) -> Int {
+    let first = max2(a, b);
+    return max2(first, c);
+}

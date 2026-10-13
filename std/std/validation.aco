@@ -1,0 +1,18 @@
+fn is_non_empty(value: String) -> Bool {
+    return value != "";
+}
+
+fn is_in_range(value: Int, lower: Int, upper: Int) -> Bool {
+    if value < lower {
+        return false;
+    }
+    return value <= upper;
+}
+
+fn is_positive(value: Int) -> Bool {
+    return value > 0;
+}
+
+fn is_non_negative(value: Int) -> Bool {
+    return value >= 0;
+}

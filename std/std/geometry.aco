@@ -1,0 +1,39 @@
+fn rectangle_area(width: Int, height: Int) -> Int {
+    return width * height;
+}
+
+fn rectangle_perimeter(width: Int, height: Int) -> Int {
+    return 2 * (width + height);
+}
+
+fn squared_distance(x1: Int, y1: Int, x2: Int, y2: Int) -> Int {
+    let dx = x2 - x1;
+    let dy = y2 - y1;
+    return dx * dx + dy * dy;
+}
+
+fn absolute(value: Int) -> Int {
+    if value < 0 {
+        return 0 - value;
+    }
+    return value;
+}
+
+fn manhattan_distance(x1: Int, y1: Int, x2: Int, y2: Int) -> Int {
+    let dx = x2 - x1;
+    let dy = y2 - y1;
+    return absolute(dx) + absolute(dy);
+}
+
+fn is_inside_rectangle(x: Int, y: Int, left: Int, top: Int, right: Int, bottom: Int) -> Bool {
+    if x < left {
+        return false;
+    }
+    if x > right {
+        return false;
+    }
+    if y < top {
+        return false;
+    }
+    return y <= bottom;
+}

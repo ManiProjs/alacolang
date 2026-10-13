@@ -212,6 +212,29 @@ mod tests {
     }
 
     #[test]
+    fn print_formats_shell_futures_and_user_structs() {
+        let cpp = Compiler::compile(
+            r#"fn main() {
+    let person = Person { name: "Ada", active: true };
+    println(person);
+    let result = shell { echo "Hi!" };
+    print(result);
+}
+struct Person {
+    name: String,
+    active: Bool,
+}
+"#,
+            "print_all_types_test.aco",
+        )
+        .expect("print should support user structs and shell futures");
+
+        assert!(cpp.contains("operator<<(std::ostream& stream, const Person& value)"));
+        assert!(cpp.contains("static void print(std::future<ShellResult>& value)"));
+        assert!(cpp.contains("stream << (value.active ? \"true\" : \"false\")"));
+    }
+
+    #[test]
     fn compiler_intrinsics_are_not_public_functions() {
         let result = Compiler::check(
             r#"
@@ -283,5 +306,122 @@ mod tests {
         assert!(diagnostic.contains("expected"));
         assert!(diagnostic.contains("String, found Bool"));
         assert!(diagnostic.contains("argument_type_test.aco:3:11"));
+    }
+
+    #[test]
+    fn standard_math_module_exposes_common_integer_helpers() {
+        let cpp = Compiler::compile(
+            r#"
+            import std.math;
+
+            fn main() {
+                println(math.abs(-5));
+                println(math.square(4));
+                println(math.clamp(12, 0, 10));
+                println(math.is_even(8));
+                println(math.is_odd(7));
+            }
+            "#,
+            "math_helpers_test.aco",
+        )
+        .expect("standard math helpers should type-check and compile");
+
+        assert!(cpp.contains("math::abs("));
+        assert!(cpp.contains("math::square(4)"));
+        assert!(cpp.contains("math::clamp(12, 0, 10)"));
+        assert!(cpp.contains("math::is_even(8)"));
+        assert!(cpp.contains("math::is_odd(7)"));
+    }
+
+    #[test]
+    fn standard_string_module_exposes_string_helpers() {
+        let cpp = Compiler::compile(
+            r#"
+            import std.string;
+
+            fn main() {
+                println(string.concat("Al", "aco"));
+                println(string.is_empty(""));
+                println(string.repeat_string("ha", 3));
+            }
+            "#,
+            "string_helpers_test.aco",
+        )
+        .expect("standard string helpers should type-check and compile");
+
+        assert!(cpp.contains("string::concat(\"Al\", \"aco\")"));
+        assert!(cpp.contains("string::is_empty(\"\")"));
+        assert!(cpp.contains("string::repeat_string(\"ha\", 3)"));
+    }
+
+    #[test]
+    fn additional_standard_modules_expose_geometry_stats_units_and_validation() {
+        let cpp = Compiler::compile(
+            r#"
+            import std.geometry;
+            import std.stats;
+            import std.units;
+            import std.validation;
+
+            fn main() {
+                println(geometry.rectangle_area(4, 5));
+                println(geometry.manhattan_distance(0, 0, 3, 4));
+                println(stats.average3(3, 6, 9));
+                println(units.celsius_to_fahrenheit(100.0));
+                println(validation.is_non_empty("Alaco"));
+            }
+            "#,
+            "additional_stdlib_test.aco",
+        )
+        .expect("additional standard modules should type-check and compile");
+
+        assert!(cpp.contains("geometry::rectangle_area(4, 5)"));
+        assert!(cpp.contains("stats::average3(3, 6, 9)"));
+        assert!(cpp.contains("units::celsius_to_fahrenheit("));
+        assert!(cpp.contains("validation::is_non_empty(\"Alaco\")"));
+    }
+
+    #[test]
+    fn misspelled_namespaced_function_suggests_the_correct_name() {
+        let error = Compiler::check(
+            "import std.math;\nfn main() {\n    math.sqaure(4);\n}\n",
+            "module_typo_test.aco",
+        )
+        .expect_err("unknown module functions should produce a diagnostic");
+
+        let diagnostic = format!("{error:?}");
+        assert!(diagnostic.contains("math.square"), "{diagnostic}");
+        assert!(
+            diagnostic.contains("module_typo_test.aco:3:10"),
+            "{diagnostic}"
+        );
+    }
+
+    #[test]
+    fn misspelled_struct_literal_field_suggests_the_correct_name() {
+        let error = Compiler::check(
+            "struct User { name: String }\nfn main() {\n    let user = User { naem: \"Ada\" };\n}\n",
+            "struct_field_typo_test.aco",
+        )
+        .expect_err("unknown struct fields should produce a diagnostic");
+
+        let diagnostic = format!("{error:?}");
+        assert!(diagnostic.contains("did you mean 'name'?"), "{diagnostic}");
+    }
+
+    #[test]
+    fn misspelled_struct_member_suggests_the_correct_name_and_highlights_it() {
+        let error = Compiler::check(
+            "struct User { name: String }\nfn main() {\n    let user = User { name: \"Ada\" };\n    println(user.naem);\n}\n",
+            "struct_member_typo_test.aco",
+        )
+        .expect_err("unknown struct members should produce a diagnostic");
+
+        let diagnostic = format!("{error:?}");
+        assert!(diagnostic.contains("did you mean 'name'?"), "{diagnostic}");
+        assert!(
+            diagnostic.contains("struct_member_typo_test.aco:4:18"),
+            "{diagnostic}"
+        );
     }
 }

@@ -1,4 +1,9 @@
 import std.math;
+import std.string;
+import std.geometry;
+import std.stats;
+import std.units;
+import std.validation;
 
 fn main() {
     let a = 10;
@@ -6,10 +11,42 @@ fn main() {
 
     let bigger = math.max(a, b);
     let smaller = math.min(a, b);
+    let negative = math.abs(-7);
+    let squared = math.square(4);
+    let bounded = math.clamp(12, 0, 10);
+    let repeated = string.repeat_string("ha", 3);
+    let area = geometry.rectangle_area(4, 5);
+    let distance = geometry.manhattan_distance(0, 0, 3, 4);
+    let average = stats.average3(3, 6, 9);
+    let fahrenheit = units.celsius_to_fahrenheit(100.0);
 
     if bigger == 20 {
         if smaller == 10 {
-            println("Math functions passed");
+            if negative == 7 {
+                if squared == 16 {
+                    if bounded == 10 {
+                        if repeated == "hahaha" {
+                            if string.concat("Al", "aco") == "Alaco" {
+                                    if string.is_empty("") {
+                                    if area == 20 {
+                                        if distance == 7 {
+                                            if average == 6 {
+                                                if fahrenheit == 212.0 {
+                                                    if validation.is_non_empty("Alaco") {
+                                                        if validation.is_in_range(5, 1, 10) {
+                                                            println("Standard library functions passed");
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

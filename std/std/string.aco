@@ -1,0 +1,15 @@
+fn concat(left: String, right: String) -> String {
+    return left + right;
+}
+
+fn is_empty(value: String) -> Bool {
+    return value == "";
+}
+
+fn repeat_string(value: String, count: Int) -> String {
+    let mut result: String = "";
+    loop (repeat count) {
+        result = result + value;
+    }
+    return result;
+}

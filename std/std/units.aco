@@ -1,0 +1,23 @@
+fn celsius_to_fahrenheit(value: Float) -> Float {
+    return value * 1.8 + 32.0;
+}
+
+fn fahrenheit_to_celsius(value: Float) -> Float {
+    return (value - 32.0) / 1.8;
+}
+
+fn kilometers_to_miles(value: Float) -> Float {
+    return value * 0.621371;
+}
+
+fn miles_to_kilometers(value: Float) -> Float {
+    return value / 0.621371;
+}
+
+fn kilograms_to_pounds(value: Float) -> Float {
+    return value * 2.2046226218;
+}
+
+fn pounds_to_kilograms(value: Float) -> Float {
+    return value / 2.2046226218;
+}

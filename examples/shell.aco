@@ -3,5 +3,5 @@ fn main() {
         echo "Hi!"
     };
 
-    print(result.get().output);
+    print(result);
 }

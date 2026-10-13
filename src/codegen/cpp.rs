@@ -388,7 +388,7 @@ impl CppCodegen {
         }
 
         if requirements.shell {
-            self.generate_shell_runtime();
+            self.generate_shell_runtime(requirements);
         }
 
         self.push_line("// End Alaco runtime");
@@ -449,7 +449,7 @@ impl CppCodegen {
         }
     }
 
-    fn generate_shell_runtime(&mut self) {
+    fn generate_shell_runtime(&mut self, requirements: &RuntimeRequirements) {
         self.push_line("struct ShellResult {");
 
         self.indent += 1;
@@ -460,6 +460,42 @@ impl CppCodegen {
         self.indent -= 1;
 
         self.push_line("};");
+        self.push_line("");
+
+        self.push_line(
+            "static std::ostream& operator<<(std::ostream& stream, const ShellResult& value) {",
+        );
+        self.indent += 1;
+        self.push_line("stream << \"ShellResult { status: \" << value.status << \", output: \" << value.output << \" }\";");
+        self.push_line("return stream;");
+        self.indent -= 1;
+        self.push_line("}");
+        self.push_line("");
+
+        // Shell expressions return futures. Printing one resolves it and
+        // formats the resulting ShellResult instead of streaming std::future.
+        for (name, enabled, stream) in [
+            ("print", requirements.print, "std::cout"),
+            ("println", requirements.println, "std::cout"),
+            ("eprint", requirements.eprint, "std::cerr"),
+            ("eprintln", requirements.eprintln, "std::cerr"),
+        ] {
+            if enabled {
+                let newline = if name.ends_with("ln") {
+                    " << '\\n'"
+                } else {
+                    ""
+                };
+                self.push_line(&format!(
+                    "static void {}(std::future<ShellResult>& value) {{ {} << value.get(){}; }}",
+                    name, stream, newline
+                ));
+                self.push_line(&format!(
+                    "static void {}(std::future<ShellResult>&& value) {{ {} << value.get(){}; }}",
+                    name, stream, newline
+                ));
+            }
+        }
         self.push_line("");
 
         self.push_line("struct Shell {");
@@ -581,7 +617,8 @@ impl CppCodegen {
     }
 
     fn generate_struct(&mut self, struct_: &Struct) {
-        self.push_line(&format!("struct {} {{", self.cpp_identifier(&struct_.name)));
+        let name = self.cpp_identifier(&struct_.name);
+        self.push_line(&format!("struct {} {{", name));
 
         self.indent += 1;
 
@@ -596,6 +633,34 @@ impl CppCodegen {
         self.indent -= 1;
 
         self.push_line("};");
+        self.push_line("");
+
+        // Give every Alaco struct a default human-readable representation.
+        self.push_line(&format!(
+            "static std::ostream& operator<<(std::ostream& stream, const {}& value) {{",
+            name
+        ));
+        self.indent += 1;
+        self.push_line(&format!("stream << \"{} {{\";", struct_.name));
+        for (index, field) in struct_.fields.iter().enumerate() {
+            let separator = if index == 0 { " " } else { ", " };
+            self.push_line(&format!("stream << \"{}{}: \";", separator, field.name));
+            if field.ty == Type::Bool {
+                self.push_line(&format!(
+                    "stream << (value.{} ? \"true\" : \"false\");",
+                    self.cpp_identifier(&field.name)
+                ));
+            } else {
+                self.push_line(&format!(
+                    "stream << value.{};",
+                    self.cpp_identifier(&field.name)
+                ));
+            }
+        }
+        self.push_line("stream << \" }\";");
+        self.push_line("return stream;");
+        self.indent -= 1;
+        self.push_line("}");
         self.push_line("");
     }
 
