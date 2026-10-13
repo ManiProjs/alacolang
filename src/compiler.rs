@@ -219,6 +219,7 @@ impl Compiler {
                 },
                 alias,
                 program: module_program,
+                imported_symbols: import.symbols.clone(),
             });
         }
 
@@ -343,6 +344,19 @@ mod tests {
 
         assert!(cpp.contains("namespace helpers {"));
         assert!(cpp.contains("helpers::hello(\"Alaco\")"));
+    }
+
+    #[test]
+    fn named_imports_expose_selected_functions_without_module_prefix() {
+        let cpp = Compiler::compile(
+            "import hello from helpers; fn main() { println(hello(\"Alaco\")); }",
+            "examples/modules/named_import.aco",
+        )
+        .expect("named imports should resolve and type-check");
+
+        assert!(cpp.contains("namespace helpers {"), "{cpp}");
+        assert!(cpp.contains("using helpers::hello;"), "{cpp}");
+        assert!(cpp.contains("hello(\"Alaco\")"), "{cpp}");
     }
 
     #[test]

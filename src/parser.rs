@@ -43,9 +43,24 @@ impl Parser {
     fn parse_import(&mut self) -> Result<Import, AlacoError> {
         self.consume(&TokenKind::Import, "expected 'import'")?;
 
-        let mut path = Vec::new();
+        // Named import: `import greet from helpers;`
+        let mut symbols = Vec::new();
+        let first = self.consume_identifier("expected module name or imported symbol")?;
+        if self.matches(&TokenKind::From) {
+            symbols.push(first);
+            let mut path = vec![self.consume_identifier("expected module name after 'from'")?];
+            while self.matches(&TokenKind::Dot) {
+                path.push(self.consume_identifier("expected module name after '.'")?);
+            }
+            self.consume_statement_end()?;
+            return Ok(Import {
+                path,
+                alias: None,
+                symbols,
+            });
+        }
 
-        path.push(self.consume_identifier("expected module name")?);
+        let mut path = vec![first];
 
         while self.matches(&TokenKind::Dot) {
             path.push(self.consume_identifier("expected module name after '.'")?);
@@ -59,7 +74,11 @@ impl Parser {
 
         self.consume_statement_end()?;
 
-        Ok(Import { path, alias })
+        Ok(Import {
+            path,
+            alias,
+            symbols,
+        })
     }
 
     fn parse_struct(&mut self) -> Result<Struct, AlacoError> {

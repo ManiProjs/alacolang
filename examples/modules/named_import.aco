@@ -1,0 +1,5 @@
+import hello from helpers;
+
+fn main() {
+    println(hello("Alaco"));
+}

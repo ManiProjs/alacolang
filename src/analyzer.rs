@@ -400,13 +400,25 @@ impl<'a> Analyzer<'a> {
             // Other modules are accessed through their import alias, e.g.
             // math.max(...), and must not leak into the global function scope.
             if !include_namespaced_modules && module.name != "std.io" {
-                continue;
+                if module.imported_symbols.is_empty() {
+                    continue;
+                }
             }
 
             for item in &module.program.items {
                 let Item::Function(function) = item else {
                     continue;
                 };
+
+                if !include_namespaced_modules
+                    && module.name != "std.io"
+                    && !module
+                        .imported_symbols
+                        .iter()
+                        .any(|name| name == &function.name)
+                {
+                    continue;
+                }
 
                 functions.insert(
                     function.name.clone(),

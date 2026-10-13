@@ -136,6 +136,18 @@ println(vertical);
 
 Import a standard-library or local module. A single-component local import resolves to a sibling `.aco` file (`import helpers;` loads `helpers.aco`); dotted local imports map intermediate components to directories and the final component to a `.aco` file (`import helpers.greetings;` loads `helpers/greetings.aco`). Paths are resolved relative to the importing `.aco` file. The final component is the namespace used to call its functions by default. Use `as` to choose a different namespace.
 
+To call a specific function without the module prefix, use a named import:
+
+```alaco
+import hello from helpers;
+
+fn main() {
+    println(hello("Alaco"));
+}
+```
+
+This loads `helpers.aco` and makes `hello` directly callable. Named imports currently support one function name per import statement. Try it with `alaco run examples/modules/named_import.aco` from the repository root.
+
 ```alaco
 import std.math;
 import helpers;
@@ -149,7 +161,7 @@ fn main() {
 }
 ```
 
-For these local imports, the importing directory can contain `helpers.aco` as well as `helpers/greetings.aco` and `helpers/math_tools.aco` under a `helpers/` directory. Imported modules can import other modules relative to their own file; dependencies are loaded first. Duplicate aliases and cyclic imports are reported as errors. Run `alaco run examples/modules/main.aco` or `alaco run examples/modules/simple_import.aco` from the repository root to try the examples.
+For these local imports, the importing directory can contain `helpers.aco` as well as `helpers/greetings.aco` and `helpers/math_tools.aco` under a `helpers/` directory. Imported modules can import other modules relative to their own file; dependencies are loaded first. Duplicate aliases and cyclic imports are reported as errors. Run `alaco run examples/modules/main.aco`, `alaco run examples/modules/simple_import.aco`, or `alaco run examples/modules/named_import.aco` from the repository root to try the examples.
 
 See the [standard-library reference](standard-library.md) for available modules and their behavior.
 

@@ -319,6 +319,7 @@ impl<'a> Lexer<'a> {
 
         match text {
             "import" => self.add_token(TokenKind::Import),
+            "from" => self.add_token(TokenKind::From),
             "as" => self.add_token(TokenKind::As),
             "fn" => self.add_token(TokenKind::Fn),
             "let" => self.add_token(TokenKind::Let),

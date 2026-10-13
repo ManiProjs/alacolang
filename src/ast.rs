@@ -16,6 +16,7 @@ pub struct Program {
 pub struct Import {
     pub path: Vec<String>,
     pub alias: Option<String>,
+    pub symbols: Vec<String>,
 }
 
 #[derive(Debug, Clone)]

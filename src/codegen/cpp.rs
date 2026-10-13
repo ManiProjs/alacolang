@@ -111,6 +111,17 @@ impl CppCodegen {
                 self.indent -= 1;
                 self.push_line("}");
                 self.push_line("");
+
+                for symbol in &module.imported_symbols {
+                    self.push_line(&format!(
+                        "using {}::{};",
+                        self.cpp_identifier(&module.alias),
+                        self.cpp_identifier(symbol)
+                    ));
+                }
+                if !module.imported_symbols.is_empty() {
+                    self.push_line("");
+                }
             }
         }
 

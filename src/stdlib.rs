@@ -14,6 +14,7 @@ pub struct LoadedModule {
     pub name: String,
     pub alias: String,
     pub program: Program,
+    pub imported_symbols: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -116,6 +117,7 @@ impl Stdlib {
             name,
             alias,
             program,
+            imported_symbols: Vec::new(),
         })
     }
 }
