@@ -38,6 +38,9 @@ More modules:
 - `std.stats`: sum, average, minimum, and maximum helpers for small fixed groups of integers.
 - `std.units`: Celsius/Fahrenheit, kilometers/miles, and kilograms/pounds conversions (`Float`).
 - `std.validation`: non-empty string, numeric range, positive, and non-negative checks.
+- `std.fs`: read/write UTF-8 text files, check existence, remove files, and create directories. Failed reads return an empty string; mutating operations report success as `Bool`.
+- `std.env`: read, check, and set environment variables, and retrieve the current working directory. `get` returns an empty string for missing variables, so pair it with `has` when needed.
+- `std.path`: join paths and inspect basename, dirname, extension, stem, and whether a path is absolute. Path operations are lexical except for the absolute-path check; they do not require the target to exist.
 
 ## Diagnostics
 

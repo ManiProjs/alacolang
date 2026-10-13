@@ -276,6 +276,47 @@ impl<'a> Analyzer<'a> {
                     },
                 );
             }
+
+            // Runtime-backed standard-library hooks. They are visible while
+            // analyzing std implementations, never directly to user code.
+            for (name, params, return_type) in [
+                ("__builtin_fs_read_text", vec![Type::String], Type::String),
+                (
+                    "__builtin_fs_write_text",
+                    vec![Type::String, Type::String],
+                    Type::Bool,
+                ),
+                ("__builtin_fs_exists", vec![Type::String], Type::Bool),
+                ("__builtin_fs_remove", vec![Type::String], Type::Bool),
+                ("__builtin_fs_create_dir", vec![Type::String], Type::Bool),
+                ("__builtin_env_get", vec![Type::String], Type::String),
+                ("__builtin_env_has", vec![Type::String], Type::Bool),
+                (
+                    "__builtin_env_set",
+                    vec![Type::String, Type::String],
+                    Type::Bool,
+                ),
+                ("__builtin_env_current_dir", vec![], Type::String),
+                (
+                    "__builtin_path_join",
+                    vec![Type::String, Type::String],
+                    Type::String,
+                ),
+                ("__builtin_path_basename", vec![Type::String], Type::String),
+                ("__builtin_path_dirname", vec![Type::String], Type::String),
+                ("__builtin_path_extension", vec![Type::String], Type::String),
+                ("__builtin_path_stem", vec![Type::String], Type::String),
+                ("__builtin_path_is_absolute", vec![Type::String], Type::Bool),
+            ] {
+                functions.insert(
+                    name.to_string(),
+                    FunctionInfo {
+                        params,
+                        return_type,
+                        intrinsic: Some(name.to_string()),
+                    },
+                );
+            }
         }
 
         for module in self.modules {

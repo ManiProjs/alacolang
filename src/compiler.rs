@@ -382,6 +382,43 @@ struct Person {
     }
 
     #[test]
+    fn runtime_standard_modules_emit_native_filesystem_environment_and_path_support() {
+        let cpp = Compiler::compile(
+            r#"
+            import std.fs;
+            import std.env;
+            import std.path;
+
+            fn main() {
+                println(fs.read_text("notes.txt"));
+                println(fs.write_text("notes.txt", "hello"));
+                println(env.get("HOME"));
+                println(env.current_dir());
+                println(path.join("folder", "file.txt"));
+                println(path.basename("folder/file.txt"));
+            }
+            "#,
+            "runtime_stdlib_test.aco",
+        )
+        .expect("runtime standard modules should type-check and compile");
+
+        assert!(cpp.contains("#include <filesystem>"));
+        assert!(cpp.contains("#include <fstream>"));
+        assert!(cpp.contains("static std::string __builtin_fs_read_text"));
+        assert!(cpp.contains("static bool __builtin_env_set"));
+        assert!(cpp.contains("static std::string __builtin_path_join"));
+        assert!(cpp.contains("fs::read_text(\"notes.txt\")"));
+        assert!(cpp.contains("env::current_dir()"));
+        assert!(cpp.contains("path::basename(\"folder/file.txt\")"));
+
+        let private_hook = Compiler::check(
+            "fn main() { __builtin_fs_exists(\"notes.txt\"); }",
+            "private_fs_hook_test.aco",
+        );
+        assert!(private_hook.is_err(), "runtime hooks must remain private");
+    }
+
+    #[test]
     fn misspelled_namespaced_function_suggests_the_correct_name() {
         let error = Compiler::check(
             "import std.math;\nfn main() {\n    math.sqaure(4);\n}\n",

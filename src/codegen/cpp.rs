@@ -16,6 +16,9 @@ struct RuntimeRequirements {
     eprintln: bool,
     shell: bool,
     string: bool,
+    fs: bool,
+    env: bool,
+    path: bool,
 }
 
 impl RuntimeRequirements {
@@ -24,7 +27,7 @@ impl RuntimeRequirements {
     }
 
     fn needs_any_runtime(&self) -> bool {
-        self.needs_io() || self.shell
+        self.needs_io() || self.shell || self.fs || self.env || self.path
     }
 }
 
@@ -138,6 +141,12 @@ impl CppCodegen {
         let mut requirements = RuntimeRequirements::default();
 
         for module in modules {
+            match module.name.as_str() {
+                "std.fs" => requirements.fs = true,
+                "std.env" => requirements.env = true,
+                "std.path" => requirements.path = true,
+                _ => {}
+            }
             self.scan_items_for_runtime(&module.program.items, &mut requirements);
         }
 
@@ -368,6 +377,17 @@ impl CppCodegen {
             self.push_line("#include <utility>");
         }
 
+        if requirements.fs || requirements.env || requirements.path {
+            self.push_line("#include <filesystem>");
+            self.push_line("#include <fstream>");
+            self.push_line("#include <string>");
+        }
+
+        if requirements.env {
+            self.push_line("#include <cstdlib>");
+            self.push_line("#include <string>");
+        }
+
         self.push_line("");
     }
 
@@ -389,6 +409,18 @@ impl CppCodegen {
 
         if requirements.shell {
             self.generate_shell_runtime(requirements);
+        }
+
+        if requirements.fs {
+            self.generate_fs_runtime();
+        }
+
+        if requirements.env {
+            self.generate_env_runtime();
+        }
+
+        if requirements.path {
+            self.generate_path_runtime();
         }
 
         self.push_line("// End Alaco runtime");
@@ -447,6 +479,57 @@ impl CppCodegen {
             self.push_line("static void eprintln(bool value) { std::cerr << (value ? \"true\" : \"false\") << '\\n'; }");
             self.push_line("");
         }
+    }
+
+    fn generate_fs_runtime(&mut self) {
+        self.push_line("static std::string __builtin_fs_read_text(const std::string& path) {");
+        self.indent += 1;
+        self.push_line("std::ifstream file(path, std::ios::binary);");
+        self.push_line("if (!file) return std::string{};");
+        self.push_line("return std::string(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());");
+        self.indent -= 1;
+        self.push_line("}");
+        self.push_line("static bool __builtin_fs_write_text(const std::string& path, const std::string& contents) {");
+        self.indent += 1;
+        self.push_line("std::ofstream file(path, std::ios::binary | std::ios::trunc);");
+        self.push_line("if (!file) return false;");
+        self.push_line("file << contents;");
+        self.push_line("return file.good();");
+        self.indent -= 1;
+        self.push_line("}");
+        self.push_line("static bool __builtin_fs_exists(const std::string& path) { std::error_code ec; return std::filesystem::exists(path, ec) && !ec; }");
+        self.push_line("static bool __builtin_fs_remove(const std::string& path) { std::error_code ec; return std::filesystem::remove(path, ec) && !ec; }");
+        self.push_line("static bool __builtin_fs_create_dir(const std::string& path) { std::error_code ec; return std::filesystem::create_directories(path, ec) || (!ec && std::filesystem::is_directory(path, ec)); }");
+        self.push_line("");
+    }
+
+    fn generate_env_runtime(&mut self) {
+        self.push_line("static std::string __builtin_env_get(const std::string& name) { const char* value = std::getenv(name.c_str()); return value ? std::string(value) : std::string{}; }");
+        self.push_line("static bool __builtin_env_has(const std::string& name) { return std::getenv(name.c_str()) != nullptr; }");
+        self.push_line(
+            "static bool __builtin_env_set(const std::string& name, const std::string& value) {",
+        );
+        self.indent += 1;
+        self.push_line("if (name.empty() || name.find('=') != std::string::npos) return false;");
+        self.push_line("#if defined(_WIN32)");
+        self.push_line("return _putenv_s(name.c_str(), value.c_str()) == 0;");
+        self.push_line("#else");
+        self.push_line("return setenv(name.c_str(), value.c_str(), 1) == 0;");
+        self.push_line("#endif");
+        self.indent -= 1;
+        self.push_line("}");
+        self.push_line("static std::string __builtin_env_current_dir() { std::error_code ec; auto path = std::filesystem::current_path(ec); return ec ? std::string{} : path.string(); }");
+        self.push_line("");
+    }
+
+    fn generate_path_runtime(&mut self) {
+        self.push_line("static std::string __builtin_path_join(const std::string& left, const std::string& right) { return (std::filesystem::path(left) / std::filesystem::path(right)).lexically_normal().string(); }");
+        self.push_line("static std::string __builtin_path_basename(const std::string& value) { return std::filesystem::path(value).filename().string(); }");
+        self.push_line("static std::string __builtin_path_dirname(const std::string& value) { auto parent = std::filesystem::path(value).parent_path().string(); return parent.empty() ? std::string(\".\") : parent; }");
+        self.push_line("static std::string __builtin_path_extension(const std::string& value) { auto ext = std::filesystem::path(value).extension().string(); return !ext.empty() && ext.front() == '.' ? ext.substr(1) : ext; }");
+        self.push_line("static std::string __builtin_path_stem(const std::string& value) { return std::filesystem::path(value).stem().string(); }");
+        self.push_line("static bool __builtin_path_is_absolute(const std::string& value) { return std::filesystem::path(value).is_absolute(); }");
+        self.push_line("");
     }
 
     fn generate_shell_runtime(&mut self, requirements: &RuntimeRequirements) {

@@ -1,0 +1,97 @@
+import std.fs;
+import std.env;
+import std.path;
+
+fn verify_runtime() -> Bool {
+    let file = "alaco-runtime-stdlib-test.txt";
+
+    if fs.write_text(file, "runtime works") == false {
+        println("filesystem write failed");
+        return false;
+    }
+
+    if fs.read_text(file) != "runtime works" {
+        println("filesystem read failed");
+        return false;
+    }
+
+    if fs.exists(file) == false {
+        println("filesystem exists failed");
+        return false;
+    }
+
+    if env.set("ALACO_RUNTIME_TEST", "works") == false {
+        println("environment set failed");
+        return false;
+    }
+
+    if env.get("ALACO_RUNTIME_TEST") != "works" {
+        println("environment get failed");
+        return false;
+    }
+
+    if env.has("ALACO_RUNTIME_TEST") == false {
+        println("environment has failed");
+        return false;
+    }
+
+    if env.current_dir() == "" {
+        println("environment current directory failed");
+        return false;
+    }
+
+    if fs.create_dir("alaco-runtime-stdlib-test/nested") == false {
+        println("filesystem create directory failed");
+        return false;
+    }
+
+    if fs.remove("alaco-runtime-stdlib-test/nested") == false {
+        println("filesystem remove nested directory failed");
+        return false;
+    }
+
+    if fs.remove("alaco-runtime-stdlib-test") == false {
+        println("filesystem remove directory failed");
+        return false;
+    }
+
+    if path.join("folder", "file.txt") != "folder/file.txt" {
+        println("path join failed");
+        return false;
+    }
+
+    if path.basename("folder/example.tar.gz") != "example.tar.gz" {
+        println("path basename failed");
+        return false;
+    }
+
+    if path.dirname("folder/example.tar.gz") != "folder" {
+        println("path dirname failed");
+        return false;
+    }
+
+    if path.extension("folder/example.tar.gz") != "gz" {
+        println("path extension failed");
+        return false;
+    }
+
+    if path.stem("folder/example.tar.gz") != "example.tar" {
+        println("path stem failed");
+        return false;
+    }
+
+    if fs.remove(file) == false {
+        println("filesystem remove failed");
+        return false;
+    }
+
+    return true;
+}
+
+fn main() {
+    if verify_runtime() {
+        println("Runtime standard library passed");
+    } else {
+        println("Runtime standard library failed");
+    }
+}

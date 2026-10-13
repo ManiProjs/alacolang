@@ -1,0 +1,21 @@
+// Filesystem helpers. Failed reads return an empty string; operations that
+// can fail return false so callers can handle errors explicitly.
+fn read_text(path: String) -> String {
+    return __builtin_fs_read_text(path);
+}
+
+fn write_text(path: String, contents: String) -> Bool {
+    return __builtin_fs_write_text(path, contents);
+}
+
+fn exists(path: String) -> Bool {
+    return __builtin_fs_exists(path);
+}
+
+fn remove(path: String) -> Bool {
+    return __builtin_fs_remove(path);
+}
+
+fn create_dir(path: String) -> Bool {
+    return __builtin_fs_create_dir(path);
+}
