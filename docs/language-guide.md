@@ -134,17 +134,28 @@ println(vertical);
 
 ## Imports
 
-Import a standard-library module with its dotted path. Its final component is the namespace used to call its functions.
+Import a standard-library or local module. A single-component local import resolves to a sibling `.aco` file (`import helpers;` loads `helpers.aco`); dotted local imports map intermediate components to directories and the final component to a `.aco` file (`import helpers.greetings;` loads `helpers/greetings.aco`). Paths are resolved relative to the importing `.aco` file. The final component is the namespace used to call its functions by default. Use `as` to choose a different namespace.
 
 ```alaco
 import std.math;
+import helpers;
+import helpers.greetings;
+import helpers.math_tools as maths;
 
 fn main() {
     println(math.clamp(12, 0, 10));
+    println(greetings.hello("Alaco"));
+    println(maths.square(9));
 }
 ```
 
+For these local imports, the importing directory can contain `helpers.aco` as well as `helpers/greetings.aco` and `helpers/math_tools.aco` under a `helpers/` directory. Imported modules can import other modules relative to their own file; dependencies are loaded first. Duplicate aliases and cyclic imports are reported as errors. Run `alaco run examples/modules/main.aco` or `alaco run examples/modules/simple_import.aco` from the repository root to try the examples.
+
 See the [standard-library reference](standard-library.md) for available modules and their behavior.
+
+## Package manifests
+
+Alaco projects use `Alaco.toml` for package metadata. A minimal manifest has a `[package]` table with `name`, semantic `version`, `edition = "2026"`, and an optional `.aco` `entry` path (default `src/main.aco`). `[dependencies]` accepts version strings and inline tables with `path` or `version` fields. Run `alaco manifest` to validate and print this metadata. Dependency downloading and dependency-aware import resolution are not implemented yet; local imports remain relative to the importing file.
 
 ## Shell expressions
 

@@ -4,6 +4,7 @@ use miette::SourceSpan;
 pub enum TokenKind {
     // Keywords
     Import,
+    As,
     Fn,
     Let,
     Mut,

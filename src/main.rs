@@ -5,6 +5,7 @@ mod compiler;
 mod error;
 mod language;
 mod lexer;
+mod manifest;
 mod parser;
 mod stdlib;
 mod token;
@@ -79,6 +80,9 @@ enum CommandKind {
 
     /// Check whether the Alaco build tools are installed correctly.
     Doctor,
+
+    /// Validate and display the current package manifest.
+    Manifest,
 }
 
 fn main() -> ExitCode {
@@ -125,6 +129,8 @@ fn run_cli() -> Result<ExitCode> {
 
         Some(CommandKind::Doctor) => doctor(),
 
+        Some(CommandKind::Manifest) => show_manifest(),
+
         None => unreachable!("Clap requires a subcommand"),
     }
 }
@@ -134,13 +140,18 @@ fn resolve_source(file: Option<PathBuf>) -> Result<PathBuf> {
         return Ok(file);
     }
 
-    let entry = PathBuf::from("src/main.aco");
+    let entry = if Path::new("Alaco.toml").is_file() {
+        crate::manifest::Manifest::load(Path::new("Alaco.toml"))?.entry
+    } else {
+        PathBuf::from("src/main.aco")
+    };
     if entry.is_file() {
         return Ok(entry);
     }
 
     Err(miette::miette!(
-        "no source file was provided and 'src/main.aco' was not found; pass a file or run 'alaco new <name>'"
+        "no source file was provided and the package entry '{}' was not found; check Alaco.toml or pass a source file",
+        entry.display()
     ))
 }
 
@@ -202,6 +213,26 @@ fn create_project_files(root: &Path) -> Result<()> {
     let source_dir = root.join("src");
     fs::create_dir_all(&source_dir)
         .map_err(|error| miette::miette!("failed to create '{}': {error}", source_dir.display()))?;
+
+    let project_name = root
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("alaco-project");
+    let package_name = project_name
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || character == '-' || character == '_' {
+                character
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>();
+    let manifest = format!(
+        "[package]\nname = \"{}\"\nversion = \"0.1.0\"\nedition = \"2026\"\nentry = \"src/main.aco\"\n\n[dependencies]\n",
+        package_name
+    );
+    write_if_missing(&root.join("Alaco.toml"), &manifest)?;
 
     fs::write(
         source_dir.join("main.aco"),
@@ -270,6 +301,19 @@ fn doctor() -> Result<ExitCode> {
     } else {
         ExitCode::SUCCESS
     })
+}
+
+fn show_manifest() -> Result<ExitCode> {
+    let path = PathBuf::from("Alaco.toml");
+    let manifest = crate::manifest::Manifest::load(&path)?;
+    println!("{} {}", manifest.name.bold(), manifest.version);
+    println!("  Edition: {}", manifest.edition);
+    println!("  Entry:   {}", manifest.entry.display());
+    println!("  Dependencies: {}", manifest.dependencies.len());
+    for (name, dependency) in &manifest.dependencies {
+        println!("    {name} = {dependency}");
+    }
+    Ok(ExitCode::SUCCESS)
 }
 
 fn test(path: &Path) -> Result<ExitCode> {
@@ -665,6 +709,9 @@ mod tests {
         assert!(source.contains("Hello, Alaco!"));
         assert!(root.join("README.md").is_file());
         assert!(root.join(".gitignore").is_file());
+        let manifest = fs::read_to_string(root.join("Alaco.toml")).unwrap();
+        assert!(manifest.contains("name = \""));
+        assert!(manifest.contains("entry = \"src/main.aco\""));
 
         fs::remove_dir_all(root).unwrap();
     }

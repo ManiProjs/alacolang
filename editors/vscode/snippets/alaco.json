@@ -1,0 +1,32 @@
+{
+  "Main function": {
+    "prefix": "main",
+    "body": ["fn main() {", "    $0", "}"],
+    "description": "Create an Alaco main function"
+  },
+  "Function": {
+    "prefix": "fn",
+    "body": ["fn ${1:name}(${2})${3: -> ${4:Void}} {", "    $0", "}"],
+    "description": "Create an Alaco function"
+  },
+  "Struct": {
+    "prefix": "struct",
+    "body": ["struct ${1:Name} {", "    ${2:field}: ${3:Int},", "}"],
+    "description": "Create a typed Alaco struct"
+  },
+  "Immutable binding": {
+    "prefix": "let",
+    "body": "let ${1:name} = ${2:value};$0",
+    "description": "Create an inferred immutable binding"
+  },
+  "Mutable binding": {
+    "prefix": "letmut",
+    "body": "let mut ${1:name} = ${2:value};$0",
+    "description": "Create an inferred mutable binding"
+  },
+  "Import module": {
+    "prefix": "import",
+    "body": "import ${1:std.string};$0",
+    "description": "Import an Alaco module"
+  }
+}

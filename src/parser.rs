@@ -51,9 +51,15 @@ impl Parser {
             path.push(self.consume_identifier("expected module name after '.'")?);
         }
 
+        let alias = if self.matches(&TokenKind::As) {
+            Some(self.consume_identifier("expected import alias after 'as'")?)
+        } else {
+            None
+        };
+
         self.consume_statement_end()?;
 
-        Ok(Import { path })
+        Ok(Import { path, alias })
     }
 
     fn parse_struct(&mut self) -> Result<Struct, AlacoError> {

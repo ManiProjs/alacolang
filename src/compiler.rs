@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     fs,
     path::{Path, PathBuf},
     process::{Command, Stdio},
@@ -125,27 +126,103 @@ impl Compiler {
         file.parent().unwrap_or_else(|| Path::new(".")).join(stem)
     }
 
-    /// Load explicitly imported standard-library modules.
-    fn load_modules(program: &Program) -> Result<Vec<LoadedModule>> {
+    fn parse_module_file(path: &Path) -> Result<Program> {
+        let filename = path.to_string_lossy().into_owned();
+        let source = fs::read_to_string(path)
+            .map_err(|error| miette::miette!("cannot read module `{filename}`: {error}"))?;
+        Self::parse(&source, &filename)
+    }
+
+    /// Resolve imported modules relative to the importing file, while keeping
+    /// `std.*` imports rooted in the installed Alaco standard library.
+    fn load_import_tree(
+        program: &Program,
+        importing_file: &Path,
+        modules: &mut Vec<LoadedModule>,
+        loaded: &mut HashSet<String>,
+        active: &mut HashSet<PathBuf>,
+    ) -> Result<()> {
         let stdlib = Stdlib::new();
-        let mut modules = Vec::new();
+        let base_dir = importing_file.parent().unwrap_or_else(|| Path::new("."));
 
         for item in &program.items {
             let Item::Import(import) = item else {
                 continue;
             };
 
-            // Currently only the standard library is supported.
-            if import.path.first().map(String::as_str) != Some("std") {
+            let is_std = import.path.first().map(String::as_str) == Some("std");
+            let path = if is_std {
+                stdlib.resolve(&import.path)
+            } else {
+                let mut path = base_dir.to_path_buf();
+                for component in &import.path {
+                    path.push(component);
+                }
+                path.set_extension("aco");
+                path
+            };
+
+            let resolved = path.canonicalize().map_err(|error| {
+                miette::miette!(
+                    "cannot resolve imported module `{}` at `{}`: {error}",
+                    import.path.join("."),
+                    path.display()
+                )
+            })?;
+            let alias = import
+                .alias
+                .clone()
+                .or_else(|| import.path.last().cloned())
+                .unwrap_or_else(|| import.path.join("."));
+            if is_std
+                && modules
+                    .iter()
+                    .any(|module| module.name == import.path.join(".") && module.alias == alias)
+            {
                 continue;
             }
+            let identity = format!("{} as {}", resolved.display(), alias);
 
-            let module = stdlib.load(&import.path)?;
+            if active.contains(&resolved) {
+                return Err(miette::miette!(
+                    "cyclic module import detected while loading `{}`",
+                    import.path.join(".")
+                ));
+            }
+            if loaded.contains(&identity) {
+                continue;
+            }
+            if modules.iter().any(|module| module.alias == alias) {
+                return Err(miette::miette!(
+                    "module alias `{alias}` is already in use; import `{}` with a different alias",
+                    import.path.join(".")
+                ));
+            }
 
-            modules.push(module);
+            active.insert(resolved.clone());
+            let module_program = if is_std {
+                stdlib.load(&import.path)?.program
+            } else {
+                Self::parse_module_file(&resolved)?
+            };
+
+            // Dependencies are emitted before the module that uses them.
+            Self::load_import_tree(&module_program, &resolved, modules, loaded, active)?;
+            active.remove(&resolved);
+            loaded.insert(identity);
+
+            modules.push(LoadedModule {
+                name: if is_std {
+                    import.path.join(".")
+                } else {
+                    resolved.to_string_lossy().into_owned()
+                },
+                alias,
+                program: module_program,
+            });
         }
 
-        Ok(modules)
+        Ok(())
     }
 
     /// Parse the source and load all standard libraries.
@@ -185,18 +262,17 @@ impl Compiler {
         }
 
         // --------------------------------------------------------
-        // Explicit imports
+        // Explicit imports, including local modules and their dependencies.
         // --------------------------------------------------------
-
-        let explicit_modules = Self::load_modules(&program)?;
-
-        for module in explicit_modules {
-            // Don't load a module twice if it is both automatic
-            // and explicitly imported.
-            if !modules.iter().any(|existing| existing.name == module.name) {
-                modules.push(module);
-            }
-        }
+        let source_path = PathBuf::from(filename);
+        let mut loaded = modules.iter().map(|module| module.name.clone()).collect();
+        Self::load_import_tree(
+            &program,
+            &source_path,
+            &mut modules,
+            &mut loaded,
+            &mut HashSet::new(),
+        )?;
 
         Ok(CompilationUnit { program, modules })
     }
@@ -245,6 +321,28 @@ mod tests {
         assert!(cpp.contains("const auto _alaco_destructure_"));
         assert!(cpp.contains("auto x = _alaco_destructure_"));
         assert!(cpp.contains("auto vertical = _alaco_destructure_"));
+    }
+
+    #[test]
+    fn local_modules_support_relative_imports_and_aliases() {
+        let source = include_str!("../examples/modules/main.aco");
+        let cpp = Compiler::compile(source, "examples/modules/main.aco")
+            .expect("local modules and aliases should compile");
+
+        assert!(cpp.contains("namespace greetings {"));
+        assert!(cpp.contains("namespace maths {"));
+        assert!(cpp.contains("greetings::hello(\"Alaco\")"));
+        assert!(cpp.contains("maths::square(9)"));
+    }
+
+    #[test]
+    fn simple_local_import_resolves_to_a_sibling_aco_file() {
+        let source = include_str!("../examples/modules/simple_import.aco");
+        let cpp = Compiler::compile(source, "examples/modules/simple_import.aco")
+            .expect("a simple import should resolve helpers to helpers.aco");
+
+        assert!(cpp.contains("namespace helpers {"));
+        assert!(cpp.contains("helpers::hello(\"Alaco\")"));
     }
 
     #[test]

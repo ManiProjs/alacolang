@@ -1,0 +1,32 @@
+{
+  "scopeName": "source.alaco",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#keywords" },
+    { "include": "#types" },
+    { "include": "#constants" },
+    { "include": "#functions" },
+    { "include": "#operators" }
+  ],
+  "repository": {
+    "comments": { "patterns": [
+      { "name": "comment.line.double-slash.alaco", "match": "//.*$" },
+      { "name": "comment.block.alaco", "begin": "/\\*", "end": "\\*/", "patterns": [{ "name": "keyword.other.todo.alaco", "match": "\\b(TODO|FIXME|NOTE|XXX)\\b" }] }
+    ]},
+    "strings": { "name": "string.quoted.double.alaco", "begin": "\"", "end": "\"", "patterns": [{ "name": "constant.character.escape.alaco", "match": "\\\\." }] },
+    "numbers": { "patterns": [
+      { "name": "constant.numeric.hex.alaco", "match": "\\b0[xX][0-9a-fA-F]+\\b" },
+      { "name": "constant.numeric.alaco", "match": "\\b\\d+(\\.\\d+)?\\b" }
+    ]},
+    "keywords": { "name": "keyword.control.alaco", "match": "\\b(fn|struct|let|mut|if|else|while|for|in|return|match|import|as)\\b" },
+    "types": { "name": "storage.type.alaco", "match": "\\b(Int|Float|Bool|String|Void)\\b" },
+    "constants": { "name": "constant.language.alaco", "match": "\\b(true|false)\\b" },
+    "functions": { "patterns": [
+      { "name": "entity.name.function.alaco", "match": "(?<=fn\\s)[A-Za-z_][A-Za-z0-9_]*" },
+      { "name": "support.function.builtin.alaco", "match": "\\b(print|println)\\b(?=\\s*\\()" }
+    ]},
+    "operators": { "name": "keyword.operator.alaco", "match": "[-+*/%=!<>|&]{1,2}" }
+  }
+}

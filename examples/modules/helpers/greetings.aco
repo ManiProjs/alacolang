@@ -1,0 +1,5 @@
+import names;
+
+fn hello(name: String) -> String {
+    return "Hello, " + names.format(name) + "!";
+}

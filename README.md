@@ -41,6 +41,7 @@ When using an installed `alaco` executable, use the same commands directly. The 
 | `alaco test [path]` | Build and run each `.aco` test program in `tests/`, or in a supplied file/directory. |
 | `alaco clean` | Remove generated artifacts in the current project's `target/` directory. |
 | `alaco doctor` | Check for the C++ compiler and installed standard library. |
+| `alaco manifest` | Validate and display `Alaco.toml` package metadata. |
 | `alaco --help` | Show command-line help. |
 
 For a quick start:
@@ -55,7 +56,27 @@ alaco test
 alaco doctor
 ```
 
-Inside a project, `src/main.aco` is the default entry point, so the filename can be omitted. Pass a `.aco` path to run a standalone file instead.
+Inside a project, `Alaco.toml` defines package metadata and the default entry point. `alaco new` and `alaco init` create a manifest. Pass a `.aco` path to run a standalone file instead.
+
+### Package manifests
+
+Every Alaco project uses `Alaco.toml`:
+
+```toml
+[package]
+name = "hello"
+version = "0.1.0"
+edition = "2026"
+entry = "src/main.aco"
+
+[dependencies]
+# Dependencies can be declared by version:
+# colors = "^1.0"
+# Or as a local package:
+# my_utils = { path = "../my_utils" }
+```
+
+`name` and a semantic `version` are required. `edition` currently supports `2026`; `entry` defaults to `src/main.aco` and must be a relative `.aco` path inside the package. Run `alaco manifest` to validate and inspect the manifest. Dependency declarations are parsed and displayed, but dependency fetching, version resolution, and exposing installed packages as import namespaces are not implemented yet; local `import` statements continue to resolve relative to their importing source file.
 
 ### Tests
 
@@ -65,6 +86,7 @@ Put test programs in `tests/` with one `.aco` file per test. Each file is compil
 
 - [Language guide](docs/language-guide.md) — syntax, types, functions, control flow, structs, imports, and shell expressions.
 - [Standard library reference](docs/standard-library.md) — module APIs, return values, and runtime limitations.
+- [Editor support](editors/README.md) — VS Code, Neovim, and Vim syntax highlighting and compiler commands.
 
 ## Standard library example
 
