@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use crate::{
     ast::{
         Block, Expr, Function, Import, Item, LoopKind, MatchArm, MatchPattern, Param, Program,
@@ -6,15 +8,30 @@ use crate::{
     language::BinaryOp,
 };
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 struct RuntimeRequirements {
     print: bool,
+    println: bool,
+    eprint: bool,
+    eprintln: bool,
     shell: bool,
+    string: bool,
+}
+
+impl RuntimeRequirements {
+    fn needs_io(&self) -> bool {
+        self.print || self.println || self.eprint || self.eprintln
+    }
+
+    fn needs_any_runtime(&self) -> bool {
+        self.needs_io() || self.shell
+    }
 }
 
 pub struct CppCodegen {
     output: String,
     indent: usize,
+    module_aliases: HashSet<String>,
 }
 
 impl CppCodegen {
@@ -22,6 +39,7 @@ impl CppCodegen {
         Self {
             output: String::new(),
             indent: 0,
+            module_aliases: HashSet::new(),
         }
     }
 
@@ -43,14 +61,35 @@ impl CppCodegen {
         program: &Program,
         modules: &[crate::stdlib::LoadedModule],
     ) -> String {
+        self.module_aliases = modules.iter().map(|module| module.alias.clone()).collect();
         let requirements = self.runtime_requirements(program, modules);
 
         self.generate_header(&requirements);
         self.generate_runtime(&requirements);
 
         for module in modules {
-            for item in &module.program.items {
-                self.generate_item(item);
+            if module.name == "std.io" {
+                // std.io is the default public API, so functions such as
+                // print(...) remain available without a module qualifier.
+                for item in &module.program.items {
+                    self.generate_item(item);
+                }
+            } else {
+                // Explicitly imported modules keep their namespace, matching
+                // Alaco calls such as math.max(...).
+                self.push_line(&format!(
+                    "namespace {} {{",
+                    self.cpp_identifier(&module.alias)
+                ));
+                self.indent += 1;
+
+                for item in &module.program.items {
+                    self.generate_item(item);
+                }
+
+                self.indent -= 1;
+                self.push_line("}");
+                self.push_line("");
             }
         }
 
@@ -61,9 +100,29 @@ impl CppCodegen {
         self.output
     }
 
-    // ------------------------------------------------------------
+    // ============================================================
+    // Intrinsics
+    // ============================================================
+
+    fn generate_intrinsic_call(&self, name: &str, arguments: &[Expr]) -> String {
+        let arguments = arguments
+            .iter()
+            .map(|argument| self.expression(argument))
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        match name {
+            "__builtin_print" | "__builtin_println" | "__builtin_eprint" | "__builtin_eprintln" => {
+                format!("{}({})", name, arguments)
+            }
+
+            _ => format!("{}({})", self.cpp_identifier(name), arguments),
+        }
+    }
+
+    // ============================================================
     // Runtime dependency detection
-    // ------------------------------------------------------------
+    // ============================================================
 
     fn runtime_requirements(
         &self,
@@ -113,6 +172,10 @@ impl CppCodegen {
 
     fn scan_type_for_runtime(&self, ty: &Type, requirements: &mut RuntimeRequirements) {
         match ty {
+            Type::String => {
+                requirements.string = true;
+            }
+
             Type::Shell | Type::ShellResult => {
                 requirements.shell = true;
             }
@@ -137,13 +200,7 @@ impl CppCodegen {
                 self.scan_expr_for_runtime(value, requirements);
             }
 
-            Stmt::Return(value, ..) => {
-                if let Some(value) = value {
-                    self.scan_expr_for_runtime(value, requirements);
-                }
-            }
-
-            Stmt::Stop(value, ..) => {
+            Stmt::Return(value, ..) | Stmt::Stop(value, ..) => {
                 if let Some(value) = value {
                     self.scan_expr_for_runtime(value, requirements);
                 }
@@ -162,6 +219,7 @@ impl CppCodegen {
                 ..
             } => {
                 self.scan_expr_for_runtime(condition, requirements);
+
                 self.scan_block_for_runtime(then_block, requirements);
 
                 if let Some(else_block) = else_block {
@@ -171,13 +229,13 @@ impl CppCodegen {
 
             Stmt::Loop { kind, body, .. } => {
                 match kind {
-                    LoopKind::Infinite { .. } => {}
+                    LoopKind::Infinite => {}
 
-                    LoopKind::Repeat(expression, ..) => {
+                    LoopKind::Repeat(expression) => {
                         self.scan_expr_for_runtime(expression, requirements);
                     }
 
-                    LoopKind::While(expression, ..) => {
+                    LoopKind::While(expression) => {
                         self.scan_expr_for_runtime(expression, requirements);
                     }
 
@@ -207,13 +265,7 @@ impl CppCodegen {
                 requirements.shell = true;
             }
 
-            Expr::Identifier(name, ..) => {
-                if name == "print" {
-                    requirements.print = true;
-                }
-            }
-
-            Expr::Number(..) | Expr::String(..) | Expr::Bool(..) => {}
+            Expr::Identifier(..) | Expr::Number(..) | Expr::String(..) | Expr::Bool(..) => {}
 
             Expr::StructLiteral { fields, .. } => {
                 for (_, value) in fields {
@@ -223,6 +275,7 @@ impl CppCodegen {
 
             Expr::Binary { left, right, .. } => {
                 self.scan_expr_for_runtime(left, requirements);
+
                 self.scan_expr_for_runtime(right, requirements);
             }
 
@@ -233,6 +286,16 @@ impl CppCodegen {
             Expr::Call {
                 callee, arguments, ..
             } => {
+                if let Expr::Identifier(name, ..) = callee.as_ref() {
+                    match name.as_str() {
+                        "__builtin_print" => requirements.print = true,
+                        "__builtin_println" => requirements.println = true,
+                        "__builtin_eprint" => requirements.eprint = true,
+                        "__builtin_eprintln" => requirements.eprintln = true,
+                        _ => {}
+                    }
+                }
+
                 self.scan_expr_for_runtime(callee, requirements);
 
                 for argument in arguments {
@@ -243,18 +306,53 @@ impl CppCodegen {
             Expr::Member { object, .. } => {
                 self.scan_expr_for_runtime(object, requirements);
             }
+
+            Expr::Intrinsic {
+                name, arguments, ..
+            } => {
+                match name.as_str() {
+                    "__builtin_print" => {
+                        requirements.print = true;
+                    }
+
+                    "__builtin_println" => {
+                        requirements.println = true;
+                    }
+
+                    "__builtin_eprint" => {
+                        requirements.eprint = true;
+                    }
+
+                    "__builtin_eprintln" => {
+                        requirements.eprintln = true;
+                    }
+
+                    _ => {}
+                }
+
+                for argument in arguments {
+                    self.scan_expr_for_runtime(argument, requirements);
+                }
+            }
         }
     }
 
-    // ------------------------------------------------------------
-    // C++ header
-    // ------------------------------------------------------------
+    // ============================================================
+    // C++ Header
+    // ============================================================
 
     fn generate_header(&mut self, requirements: &RuntimeRequirements) {
         self.push_line("#include <algorithm>");
+        self.push_line("#include <cstdint>");
+        self.push_line("#include <cstdlib>");
 
-        if requirements.print {
+        if requirements.string {
+            self.push_line("#include <string>");
+        }
+
+        if requirements.needs_io() {
             self.push_line("#include <iostream>");
+            self.push_line("#include <string>");
         }
 
         if requirements.shell {
@@ -267,20 +365,20 @@ impl CppCodegen {
         self.push_line("");
     }
 
-    // ------------------------------------------------------------
+    // ============================================================
     // Runtime
-    // ------------------------------------------------------------
+    // ============================================================
 
     fn generate_runtime(&mut self, requirements: &RuntimeRequirements) {
-        if !requirements.print && !requirements.shell {
+        if !requirements.needs_any_runtime() {
             return;
         }
 
         self.push_line("// Alaco runtime");
         self.push_line("");
 
-        if requirements.print {
-            self.generate_print_runtime();
+        if requirements.needs_io() {
+            self.generate_io_runtime(requirements);
         }
 
         if requirements.shell {
@@ -291,24 +389,60 @@ impl CppCodegen {
         self.push_line("");
     }
 
-    fn generate_print_runtime(&mut self) {
-        self.push_line("static void print(const std::string& value) {");
+    fn generate_io_runtime(&mut self, requirements: &RuntimeRequirements) {
+        if requirements.print {
+            self.push_line("static void __builtin_print(const std::string& value) {");
 
-        self.indent += 1;
-        self.push_line("std::cout << value;");
-        self.indent -= 1;
+            self.indent += 1;
+            self.push_line("std::cout << value;");
+            self.indent -= 1;
 
-        self.push_line("}");
-        self.push_line("");
+            self.push_line("}");
+            self.push_line("");
+        }
+
+        if requirements.println {
+            self.push_line("static void __builtin_println(const std::string& value) {");
+
+            self.indent += 1;
+            self.push_line("std::cout << value << '\\n';");
+            self.indent -= 1;
+
+            self.push_line("}");
+            self.push_line("");
+        }
+
+        if requirements.eprint {
+            self.push_line("static void __builtin_eprint(const std::string& value) {");
+
+            self.indent += 1;
+            self.push_line("std::cerr << value;");
+            self.indent -= 1;
+
+            self.push_line("}");
+            self.push_line("");
+        }
+
+        if requirements.eprintln {
+            self.push_line("static void __builtin_eprintln(const std::string& value) {");
+
+            self.indent += 1;
+            self.push_line("std::cerr << value << '\\n';");
+            self.indent -= 1;
+
+            self.push_line("}");
+            self.push_line("");
+        }
     }
 
     fn generate_shell_runtime(&mut self) {
         self.push_line("struct ShellResult {");
 
         self.indent += 1;
+
         self.push_line("int status;");
         self.push_line("std::string output;");
-        self.push_line("bool success;");
+
         self.indent -= 1;
 
         self.push_line("};");
@@ -318,54 +452,43 @@ impl CppCodegen {
 
         self.indent += 1;
 
-        self.push_line("std::future<ShellResult> task;");
-        self.push_line("");
-
-        self.push_line("explicit Shell(std::future<ShellResult>&& task)");
-
-        self.indent += 1;
-        self.push_line(": task(std::move(task)) {}");
-        self.indent -= 1;
-
-        self.push_line("");
-
-        self.push_line("ShellResult get() {");
-
-        self.indent += 1;
-        self.push_line("return task.get();");
-        self.indent -= 1;
-
-        self.push_line("}");
+        self.push_line("std::string command;");
 
         self.indent -= 1;
 
         self.push_line("};");
         self.push_line("");
 
-        self.push_line("static ShellResult shell_run(const std::string& command) {");
+        self.push_line("static Shell shell_create(const std::string& command) {");
 
         self.indent += 1;
 
-        self.push_line("std::string output;");
-        self.push_line("std::string full_command = command + \" 2>&1\";");
-        self.push_line("");
-
-        self.push_line("FILE* pipe = popen(full_command.c_str(), \"r\");");
-        self.push_line("");
-
-        self.push_line("if (!pipe) {");
-
-        self.indent += 1;
-
-        self.push_line("return {-1, \"failed to start shell command\", false};");
+        self.push_line("return Shell{command};");
 
         self.indent -= 1;
 
         self.push_line("}");
         self.push_line("");
 
+        self.push_line("static ShellResult shell_run(const Shell& shell) {");
+
+        self.indent += 1;
+
+        self.push_line("std::string output;");
+
+        self.push_line("FILE* pipe = popen(shell.command.c_str(), \"r\");");
+
+        self.push_line("if (!pipe) {");
+
+        self.indent += 1;
+
+        self.push_line("return ShellResult{-1, \"\"};");
+
+        self.indent -= 1;
+
+        self.push_line("}");
+
         self.push_line("char buffer[4096];");
-        self.push_line("");
 
         self.push_line("while (fgets(buffer, sizeof(buffer), pipe)) {");
 
@@ -376,23 +499,37 @@ impl CppCodegen {
         self.indent -= 1;
 
         self.push_line("}");
-        self.push_line("");
 
         self.push_line("int status = pclose(pipe);");
-        self.push_line("");
 
-        self.push_line("return {status, output, status == 0};");
+        self.push_line("return ShellResult{status, std::move(output)};");
 
         self.indent -= 1;
 
         self.push_line("}");
         self.push_line("");
 
-        self.push_line("static Shell shell_async(const std::string& command) {");
+        self.push_line("static std::future<ShellResult> shell_async(");
 
         self.indent += 1;
 
-        self.push_line("return Shell(std::async(std::launch::async, shell_run, command));");
+        self.push_line("const std::string& command");
+
+        self.indent -= 1;
+
+        self.push_line(") {");
+
+        self.indent += 1;
+
+        self.push_line("return std::async(std::launch::async, [command]() {");
+
+        self.indent += 1;
+
+        self.push_line("return shell_run(Shell{command});");
+
+        self.indent -= 1;
+
+        self.push_line("});");
 
         self.indent -= 1;
 
@@ -400,9 +537,9 @@ impl CppCodegen {
         self.push_line("");
     }
 
-    // ------------------------------------------------------------
+    // ============================================================
     // Items
-    // ------------------------------------------------------------
+    // ============================================================
 
     fn generate_item(&mut self, item: &Item) {
         match item {
@@ -425,7 +562,8 @@ impl CppCodegen {
     }
 
     fn generate_import(&mut self, _import: &Import) {
-        // Imports are resolved by the Alaco compiler before C++ generation.
+        // Imports are resolved by the Alaco compiler
+        // before C++ generation.
     }
 
     fn generate_struct(&mut self, struct_: &Struct) {
@@ -473,11 +611,11 @@ impl CppCodegen {
 
         self.generate_block_contents(&function.body);
 
-        self.indent -= 1;
-
         if function.name == "main" {
             self.push_line("return 0;");
         }
+
+        self.indent -= 1;
 
         self.push_line("}");
         self.push_line("");
@@ -497,9 +635,9 @@ impl CppCodegen {
         }
     }
 
-    // ------------------------------------------------------------
+    // ============================================================
     // Statements
-    // ------------------------------------------------------------
+    // ============================================================
 
     fn generate_statement(&mut self, statement: &Stmt) {
         match statement {
@@ -511,6 +649,7 @@ impl CppCodegen {
                 ..
             } => {
                 let cpp_name = self.cpp_identifier(name);
+
                 let expression = self.expression(value);
 
                 if let Some(ty) = ty {
@@ -558,14 +697,18 @@ impl CppCodegen {
                 self.push_line(&format!("if ({}) {{", self.expression(condition)));
 
                 self.indent += 1;
+
                 self.generate_block_contents(then_block);
+
                 self.indent -= 1;
 
                 if let Some(else_block) = else_block {
                     self.push_line("} else {");
 
                     self.indent += 1;
+
                     self.generate_block_contents(else_block);
+
                     self.indent -= 1;
                 }
 
@@ -589,54 +732,63 @@ impl CppCodegen {
         }
     }
 
-    // ------------------------------------------------------------
+    // ============================================================
     // Loops
-    // ------------------------------------------------------------
+    // ============================================================
 
-    fn generate_loop(&mut self, kind: &LoopKind, _binding: Option<&str>, body: &Block) {
+    fn generate_loop(&mut self, kind: &LoopKind, binding: Option<&str>, body: &Block) {
         match kind {
-            LoopKind::Infinite { .. } => {
+            LoopKind::Infinite => {
                 self.push_line("while (true) {");
 
                 self.indent += 1;
+
                 self.generate_block_contents(body);
+
                 self.indent -= 1;
 
                 self.push_line("}");
             }
 
-            LoopKind::Repeat(count, ..) => {
+            LoopKind::Repeat(count) => {
                 let count = self.expression(count);
 
                 self.push_line(&format!("for (long long _i = 0; _i < {}; ++_i) {{", count));
 
                 self.indent += 1;
+
                 self.generate_block_contents(body);
+
                 self.indent -= 1;
 
                 self.push_line("}");
             }
 
-            LoopKind::While(condition, ..) => {
+            LoopKind::While(condition) => {
                 self.push_line(&format!("while ({}) {{", self.expression(condition)));
 
                 self.indent += 1;
+
                 self.generate_block_contents(body);
+
                 self.indent -= 1;
 
                 self.push_line("}");
             }
 
-            LoopKind::For {
-                variable, iterable, ..
-            } => {
+            LoopKind::For { variable, iterable } => {
+                let variable = binding.unwrap_or(variable);
+
                 let variable = self.cpp_identifier(variable);
+
                 let iterable = self.expression(iterable);
 
                 self.push_line(&format!("for (auto {} : {}) {{", variable, iterable));
 
                 self.indent += 1;
+
                 self.generate_block_contents(body);
+
                 self.indent -= 1;
 
                 self.push_line("}");
@@ -644,12 +796,17 @@ impl CppCodegen {
         }
     }
 
-    // ------------------------------------------------------------
+    // ============================================================
     // Match
-    // ------------------------------------------------------------
+    // ============================================================
 
     fn generate_match(&mut self, expression: &Expr, arms: &[MatchArm]) {
+        if arms.is_empty() {
+            return;
+        }
+
         let expression = self.expression(expression);
+
         let temp = "_match_value";
 
         self.push_line(&format!("auto {} = {};", temp, expression));
@@ -658,42 +815,52 @@ impl CppCodegen {
             let condition = self.match_condition(temp, &arm.pattern);
 
             if index == 0 {
-                if let Some(condition) = condition {
-                    self.push_line(&format!("if ({}) {{", condition));
-                } else {
-                    self.push_line("{");
+                match condition {
+                    Some(condition) => {
+                        self.push_line(&format!("if ({}) {{", condition));
+                    }
+
+                    None => {
+                        self.push_line("{");
+                    }
                 }
-            } else if let Some(condition) = condition {
-                self.push_line(&format!("}} else if ({}) {{", condition));
             } else {
-                self.push_line("} else {");
+                match condition {
+                    Some(condition) => {
+                        self.push_line(&format!("}} else if ({}) {{", condition));
+                    }
+
+                    None => {
+                        self.push_line("} else {");
+                    }
+                }
             }
 
             self.indent += 1;
+
             self.generate_block_contents(&arm.body);
+
             self.indent -= 1;
         }
 
-        if !arms.is_empty() {
-            self.push_line("}");
-        }
+        self.push_line("}");
     }
 
     fn match_condition(&self, value: &str, pattern: &MatchPattern) -> Option<String> {
         match pattern {
-            MatchPattern::Number(number, ..) => Some(format!("{} == {}", value, number)),
+            MatchPattern::Number(number) => Some(format!("{} == {}", value, number)),
 
-            MatchPattern::String(string, ..) => {
+            MatchPattern::String(string) => {
                 Some(format!("{} == {}", value, self.cpp_string_literal(string)))
             }
 
-            MatchPattern::Bool(value_bool, ..) => Some(format!(
+            MatchPattern::Bool(value_bool) => Some(format!(
                 "{} == {}",
                 value,
                 if *value_bool { "true" } else { "false" }
             )),
 
-            MatchPattern::Identifier(identifier, ..) => {
+            MatchPattern::Identifier(identifier) => {
                 Some(format!("{} == {}", value, self.cpp_identifier(identifier)))
             }
 
@@ -701,9 +868,9 @@ impl CppCodegen {
         }
     }
 
-    // ------------------------------------------------------------
+    // ============================================================
     // Expressions
-    // ------------------------------------------------------------
+    // ============================================================
 
     fn expression(&self, expression: &Expr) -> String {
         match expression {
@@ -738,6 +905,7 @@ impl CppCodegen {
                 ..
             } => {
                 let left = self.expression(left);
+
                 let right = self.expression(right);
 
                 format!("({} {} {})", left, self.binary_operator(*operator), right)
@@ -758,15 +926,32 @@ impl CppCodegen {
             Expr::Call {
                 callee, arguments, ..
             } => {
-                let callee = self.expression(callee);
-
                 let arguments = arguments
                     .iter()
                     .map(|argument| self.expression(argument))
                     .collect::<Vec<_>>()
                     .join(", ");
 
-                format!("{}({})", callee, arguments)
+                if let Expr::Member { object, member, .. } = callee.as_ref() {
+                    if let Expr::Identifier(alias, _) = object.as_ref() {
+                        if self.module_aliases.contains(alias) {
+                            // std.io functions are emitted in the global
+                            // namespace to preserve unqualified calls.
+                            if alias == "io" {
+                                return format!("{}({})", self.cpp_identifier(member), arguments);
+                            }
+
+                            return format!(
+                                "{}::{}({})",
+                                self.cpp_identifier(alias),
+                                self.cpp_identifier(member),
+                                arguments
+                            );
+                        }
+                    }
+                }
+
+                format!("{}({})", self.expression(callee), arguments)
             }
 
             Expr::Member { object, member, .. } => {
@@ -778,12 +963,16 @@ impl CppCodegen {
             Expr::Shell { command, .. } => {
                 format!("shell_async({})", self.cpp_string_literal(command))
             }
+
+            Expr::Intrinsic {
+                name, arguments, ..
+            } => self.generate_intrinsic_call(name, arguments),
         }
     }
 
-    // ------------------------------------------------------------
+    // ============================================================
     // Operators
-    // ------------------------------------------------------------
+    // ============================================================
 
     fn binary_operator(&self, operator: BinaryOp) -> &'static str {
         match operator {
@@ -798,6 +987,7 @@ impl CppCodegen {
 
             BinaryOp::Less => "<",
             BinaryOp::LessEqual => "<=",
+
             BinaryOp::Greater => ">",
             BinaryOp::GreaterEqual => ">=",
 
@@ -812,18 +1002,22 @@ impl CppCodegen {
         }
     }
 
-    // ------------------------------------------------------------
+    // ============================================================
     // Types
-    // ------------------------------------------------------------
+    // ============================================================
 
     fn type_name(&self, ty: &Type) -> String {
         match ty {
             Type::Int => "long long".to_string(),
+
             Type::Float => "double".to_string(),
+
             Type::Bool => "bool".to_string(),
+
             Type::String => "std::string".to_string(),
 
             Type::Shell => "Shell".to_string(),
+
             Type::ShellResult => "ShellResult".to_string(),
 
             Type::Void => "void".to_string(),
@@ -832,9 +1026,9 @@ impl CppCodegen {
         }
     }
 
-    // ------------------------------------------------------------
-    // C++ string escaping
-    // ------------------------------------------------------------
+    // ============================================================
+    // C++ String Escaping
+    // ============================================================
 
     fn cpp_string_literal(&self, value: &str) -> String {
         let mut result = String::with_capacity(value.len() + 2);
@@ -843,13 +1037,33 @@ impl CppCodegen {
 
         for character in value.chars() {
             match character {
-                '\\' => result.push_str("\\\\"),
-                '"' => result.push_str("\\\""),
-                '\n' => result.push_str("\\n"),
-                '\r' => result.push_str("\\r"),
-                '\t' => result.push_str("\\t"),
-                '\0' => result.push_str("\\0"),
-                character => result.push(character),
+                '\\' => {
+                    result.push_str("\\\\");
+                }
+
+                '"' => {
+                    result.push_str("\\\"");
+                }
+
+                '\n' => {
+                    result.push_str("\\n");
+                }
+
+                '\r' => {
+                    result.push_str("\\r");
+                }
+
+                '\t' => {
+                    result.push_str("\\t");
+                }
+
+                '\0' => {
+                    result.push_str("\\0");
+                }
+
+                character => {
+                    result.push(character);
+                }
             }
         }
 
@@ -858,9 +1072,9 @@ impl CppCodegen {
         result
     }
 
-    // ------------------------------------------------------------
-    // C++ identifiers
-    // ------------------------------------------------------------
+    // ============================================================
+    // C++ Identifiers
+    // ============================================================
 
     fn cpp_identifier(&self, name: &str) -> String {
         match name {
@@ -875,10 +1089,10 @@ impl CppCodegen {
             | "not" | "not_eq" | "nullptr" | "operator" | "or" | "or_eq" | "private"
             | "protected" | "public" | "reflexpr" | "register" | "reinterpret_cast"
             | "requires" | "return" | "short" | "signed" | "sizeof" | "static"
-            | "static_assert" | "static_cast" | "struct" | "switch" | "synchronized"
-            | "template" | "this" | "thread_local" | "throw" | "true" | "try" | "typedef"
-            | "typeid" | "typename" | "union" | "unsigned" | "using" | "virtual" | "void"
-            | "volatile" | "wchar_t" | "while" | "xor" | "xor_eq" => {
+            | "static_assert" | "static_cast" | "struct" | "synchronized" | "template" | "this"
+            | "thread_local" | "throw" | "true" | "try" | "typedef" | "typeid" | "typename"
+            | "union" | "unsigned" | "using" | "virtual" | "void" | "volatile" | "wchar_t"
+            | "while" | "xor" | "xor_eq" => {
                 format!("{}_alaco", name)
             }
 
@@ -886,9 +1100,9 @@ impl CppCodegen {
         }
     }
 
-    // ------------------------------------------------------------
+    // ============================================================
     // Output
-    // ------------------------------------------------------------
+    // ============================================================
 
     fn push_line(&mut self, line: &str) {
         for _ in 0..self.indent {

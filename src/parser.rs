@@ -170,6 +170,7 @@ impl Parser {
             params,
             return_type,
             body,
+            intrinsic: None,
         })
     }
 
@@ -754,7 +755,7 @@ impl Parser {
                 //     name: "Mani",
                 //     age: 13,
                 // }
-                if self.check(&TokenKind::LeftBrace) {
+                if self.looks_like_struct_literal() {
                     self.advance();
 
                     self.skip_newlines();
@@ -815,6 +816,31 @@ impl Parser {
 
             _ => Err(self.error("expected expression")),
         }
+    }
+
+    fn looks_like_struct_literal(&self) -> bool {
+        if !self.check(&TokenKind::LeftBrace) {
+            return false;
+        }
+
+        // An identifier followed by a block is common in constructs such as
+        // `if value { ... }`. Only treat `{` as a struct literal when the
+        // contents begin with a field declaration (`field: value`).
+        let mut lookahead = self.current + 1;
+        while matches!(
+            self.tokens.get(lookahead).map(|token| &token.kind),
+            Some(TokenKind::Newline)
+        ) {
+            lookahead += 1;
+        }
+
+        matches!(
+            self.tokens.get(lookahead).map(|token| &token.kind),
+            Some(TokenKind::Identifier(_))
+        ) && matches!(
+            self.tokens.get(lookahead + 1).map(|token| &token.kind),
+            Some(TokenKind::Colon)
+        )
     }
 
     fn consume_statement_end(&mut self) -> Result<(), AlacoError> {

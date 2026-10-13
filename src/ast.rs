@@ -50,6 +50,7 @@ pub struct Function {
     pub params: Vec<Param>,
     pub return_type: Option<Type>,
     pub body: Block,
+    pub intrinsic: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -169,6 +170,12 @@ pub enum Expr {
         command: String,
         span: Span,
     },
+
+    Intrinsic {
+        name: String,
+        arguments: Vec<Expr>,
+        span: Span,
+    },
 }
 
 impl Expr {
@@ -184,6 +191,7 @@ impl Expr {
             Expr::Call { span, .. } => *span,
             Expr::Member { span, .. } => *span,
             Expr::Shell { span, .. } => *span,
+            Expr::Intrinsic { span, .. } => *span,
         }
     }
 }

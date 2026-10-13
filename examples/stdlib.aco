@@ -7,6 +7,9 @@ fn main() {
     let bigger = math.max(a, b);
     let smaller = math.min(a, b);
 
-    print(bigger);
-    print(smaller);
+    if bigger == 20 {
+        if smaller == 10 {
+            println("Math functions passed");
+        }
+    }
 }

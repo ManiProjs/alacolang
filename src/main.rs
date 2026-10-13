@@ -66,7 +66,10 @@ fn main() -> ExitCode {
     match run_cli() {
         Ok(code) => code,
 
-        Err(error) => ExitCode::FAILURE,
+        Err(error) => {
+            eprintln!("{error:?}");
+            ExitCode::FAILURE
+        }
     }
 }
 

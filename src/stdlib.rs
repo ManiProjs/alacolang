@@ -31,6 +31,14 @@ impl Stdlib {
     }
 
     fn default_root() -> PathBuf {
+        // When running a compiler built from this checkout, use the
+        // repository's standard library automatically. Installed builds can
+        // continue using the user's installed standard library directory.
+        let development_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("std");
+        if development_root.join("std").join("io.aco").is_file() {
+            return development_root;
+        }
+
         env::var_os("HOME")
             .map(PathBuf::from)
             .map(|home| home.join(".alaco").join("stdlib"))
@@ -39,6 +47,14 @@ impl Stdlib {
 
     pub fn root(&self) -> &Path {
         &self.root
+    }
+
+    /// Standard libraries that are automatically available to every Alaco
+    /// program.
+    ///
+    /// These modules do not need an explicit `import`.
+    pub fn default_modules() -> &'static [&'static [&'static str]] {
+        &[&["std", "io"], &["std", "shell"], &["std", "sql"]]
     }
 
     pub fn resolve(&self, module: &[String]) -> PathBuf {
@@ -50,6 +66,18 @@ impl Stdlib {
 
         path.set_extension("aco");
         path
+    }
+
+    pub fn exists(&self, module: &[String]) -> bool {
+        self.resolve(module).is_file()
+    }
+
+    pub fn load_if_exists(&self, module: &[String]) -> Result<Option<LoadedModule>> {
+        if !self.exists(module) {
+            return Ok(None);
+        }
+
+        self.load(module).map(Some)
     }
 
     pub fn load(&self, module: &[String]) -> Result<LoadedModule> {

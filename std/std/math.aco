@@ -1,4 +1,4 @@
-fn max(a: int, b: int) -> int {
+fn max(a: Int, b: Int) -> Int {
     if a > b {
         return a;
     }
@@ -6,7 +6,7 @@ fn max(a: int, b: int) -> int {
     return b;
 }
 
-fn min(a: int, b: int) -> int {
+fn min(a: Int, b: Int) -> Int {
     if a < b {
         return a;
     }

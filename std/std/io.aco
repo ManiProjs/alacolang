@@ -1,0 +1,15 @@
+fn print(value: String) {
+    __builtin_print(value);
+}
+
+fn println(value: String) {
+    __builtin_println(value);
+}
+
+fn eprint(value: String) {
+    __builtin_eprint(value);
+}
+
+fn eprintln(value: String) {
+    __builtin_eprintln(value);
+}

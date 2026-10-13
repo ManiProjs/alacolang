@@ -10,5 +10,7 @@ fn main() {
     let a = double(10)
     let b = add(a, 5)
 
-    print(b)
+    if b == 25 {
+        println("Function calls passed")
+    }
 }
