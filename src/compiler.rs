@@ -191,20 +191,24 @@ mod tests {
     use super::Compiler;
 
     #[test]
-    fn public_io_functions_are_wrappers_around_private_runtime_hooks() {
+    fn public_io_functions_accept_multiple_value_types() {
         let cpp = Compiler::compile(
             r#"
             fn main() {
                 println("hello");
+                print(42);
+                println(3.5);
+                println(true);
             }
             "#,
             "io_test.aco",
         )
-        .expect("a program using the public println function should compile");
+        .expect("print functions should accept strings, integers, floats, and booleans");
 
-        assert!(cpp.contains("void println(std::string value)"));
-        assert!(cpp.contains("__builtin_println(value);"));
-        assert!(cpp.contains("std::cout << value <<"));
+        assert!(cpp.contains("template <typename T> static void println(const T& value)"));
+        assert!(cpp.contains("static void println(bool value)"));
+        assert!(cpp.contains("print(42);"));
+        assert!(cpp.contains("println(true);"));
     }
 
     #[test]
@@ -268,15 +272,16 @@ mod tests {
     }
 
     #[test]
-    fn function_argument_type_errors_highlight_the_argument() {
+    fn ordinary_function_argument_type_errors_highlight_the_argument() {
         let error = Compiler::check(
-            "fn main() {\n    println(42);\n}\n",
+            "fn greet(name: String) {}\nfn main() {\n    greet(true);\n}\n",
             "argument_type_test.aco",
         )
-        .expect_err("println should reject an integer argument");
+        .expect_err("ordinary functions should still reject mismatched argument types");
 
         let diagnostic = format!("{error:?}");
-        assert!(diagnostic.contains("expected String, found Int"));
-        assert!(diagnostic.contains("argument_type_test.aco:2:13"));
+        assert!(diagnostic.contains("expected"));
+        assert!(diagnostic.contains("String, found Bool"));
+        assert!(diagnostic.contains("argument_type_test.aco:3:11"));
     }
 }

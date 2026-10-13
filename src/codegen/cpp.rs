@@ -71,7 +71,13 @@ impl CppCodegen {
             if module.name == "std.io" {
                 // std.io is the default public API, so functions such as
                 // print(...) remain available without a module qualifier.
+                // The four print functions are emitted as C++ templates in
+                // the runtime so they can accept any streamable value.
                 for item in &module.program.items {
+                    if matches!(item, Item::Function(function) if matches!(function.name.as_str(), "print" | "println" | "eprint" | "eprintln"))
+                    {
+                        continue;
+                    }
                     self.generate_item(item);
                 }
             } else {
@@ -288,10 +294,10 @@ impl CppCodegen {
             } => {
                 if let Expr::Identifier(name, ..) = callee.as_ref() {
                     match name.as_str() {
-                        "__builtin_print" => requirements.print = true,
-                        "__builtin_println" => requirements.println = true,
-                        "__builtin_eprint" => requirements.eprint = true,
-                        "__builtin_eprintln" => requirements.eprintln = true,
+                        "__builtin_print" | "print" => requirements.print = true,
+                        "__builtin_println" | "println" => requirements.println = true,
+                        "__builtin_eprint" | "eprint" => requirements.eprint = true,
+                        "__builtin_eprintln" | "eprintln" => requirements.eprintln = true,
                         _ => {}
                     }
                 }
@@ -391,46 +397,54 @@ impl CppCodegen {
 
     fn generate_io_runtime(&mut self, requirements: &RuntimeRequirements) {
         if requirements.print {
-            self.push_line("static void __builtin_print(const std::string& value) {");
+            self.push_line("template <typename T> static void print(const T& value) {");
 
             self.indent += 1;
             self.push_line("std::cout << value;");
             self.indent -= 1;
 
             self.push_line("}");
+            self.push_line(
+                "static void print(bool value) { std::cout << (value ? \"true\" : \"false\"); }",
+            );
             self.push_line("");
         }
 
         if requirements.println {
-            self.push_line("static void __builtin_println(const std::string& value) {");
+            self.push_line("template <typename T> static void println(const T& value) {");
 
             self.indent += 1;
             self.push_line("std::cout << value << '\\n';");
             self.indent -= 1;
 
             self.push_line("}");
+            self.push_line("static void println(bool value) { std::cout << (value ? \"true\" : \"false\") << '\\n'; }");
             self.push_line("");
         }
 
         if requirements.eprint {
-            self.push_line("static void __builtin_eprint(const std::string& value) {");
+            self.push_line("template <typename T> static void eprint(const T& value) {");
 
             self.indent += 1;
             self.push_line("std::cerr << value;");
             self.indent -= 1;
 
             self.push_line("}");
+            self.push_line(
+                "static void eprint(bool value) { std::cerr << (value ? \"true\" : \"false\"); }",
+            );
             self.push_line("");
         }
 
         if requirements.eprintln {
-            self.push_line("static void __builtin_eprintln(const std::string& value) {");
+            self.push_line("template <typename T> static void eprintln(const T& value) {");
 
             self.indent += 1;
             self.push_line("std::cerr << value << '\\n';");
             self.indent -= 1;
 
             self.push_line("}");
+            self.push_line("static void eprintln(bool value) { std::cerr << (value ? \"true\" : \"false\") << '\\n'; }");
             self.push_line("");
         }
     }

@@ -935,6 +935,29 @@ impl<'a> Analyzer<'a> {
                 self.error(message, Some(*span))
             })?;
 
+            // Printing is intentionally polymorphic: its implementation is
+            // supplied by the C++ runtime, not by a String-only stdlib wrapper.
+            if matches!(name.as_str(), "print" | "println" | "eprint" | "eprintln") {
+                if arguments.len() != 1 {
+                    return Err(self.error(
+                        format!(
+                            "function '{}' expects 1 argument(s), but {} were provided",
+                            name,
+                            arguments.len()
+                        ),
+                        Some(*span),
+                    ));
+                }
+                let actual = self.type_of_expression(&arguments[0], scopes, program, functions)?;
+                if matches!(actual, Type::Void) {
+                    return Err(self.error(
+                        "cannot print a value of type 'Void'",
+                        Some(arguments[0].span()),
+                    ));
+                }
+                return Ok(Type::Void);
+            }
+
             if arguments.len() != function.params.len() {
                 return Err(self.error(
                     format!(
