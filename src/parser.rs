@@ -917,6 +917,11 @@ impl Parser {
                 Ok(Expr::String(value, span))
             }
 
+            TokenKind::StringTemplate(parts) => {
+                self.advance();
+                Ok(Expr::Interpolation(parts, span))
+            }
+
             TokenKind::True => {
                 self.advance();
                 Ok(Expr::Bool(true, span))

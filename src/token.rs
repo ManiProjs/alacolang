@@ -35,6 +35,7 @@ pub enum TokenKind {
     Integer(i64),
     Float(f64),
     String(String),
+    StringTemplate(Vec<String>),
 
     // Operators
     Plus,

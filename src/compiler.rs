@@ -360,6 +360,19 @@ mod tests {
     }
 
     #[test]
+    fn string_interpolation_emits_literal_and_variable_parts() {
+        let cpp = Compiler::compile(
+            "fn main() { let name = \"Alaco\"; let count = 3; println(\"Hello, ${name}! Count: ${count}\"); }",
+            "string_interpolation.aco",
+        )
+        .expect("string interpolation should compile");
+
+        assert!(cpp.contains("#include <sstream>"), "{cpp}");
+        assert!(cpp.contains("_alaco_interp << name"), "{cpp}");
+        assert!(cpp.contains("_alaco_interp << count"), "{cpp}");
+    }
+
+    #[test]
     fn struct_destructuring_rejects_unknown_fields_and_wrong_types() {
         let unknown_field = Compiler::check(
             "struct Point { x: Int } fn main() { let point = Point { x: 1 }; let Point { y } = point; }",

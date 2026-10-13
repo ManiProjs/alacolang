@@ -971,6 +971,18 @@ impl<'a> Analyzer<'a> {
 
             Expr::String(_, _) => Ok(Type::String),
 
+            Expr::Interpolation(parts, span) => {
+                for name in parts.iter().skip(1).step_by(2) {
+                    if self.find_variable(scopes, name).is_none() {
+                        return Err(AlacoError::UndefinedVariable {
+                            name: name.clone(),
+                            span: (*span).into(),
+                        });
+                    }
+                }
+                Ok(Type::String)
+            }
+
             Expr::Bool(_, _) => Ok(Type::Bool),
 
             // Shell expressions are first-class values.

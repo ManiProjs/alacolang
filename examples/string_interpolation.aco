@@ -1,0 +1,5 @@
+fn main() {
+    let name = "Alaco";
+    let version = 2026;
+    println("Hello, ${name}! Welcome to Alaco ${version}.");
+}

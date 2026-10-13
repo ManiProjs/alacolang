@@ -194,14 +194,22 @@ impl<'a> Lexer<'a> {
             if ch == '"' {
                 let raw = &self.source[content_start..index];
 
-                let value = self
-                    .unescape_string(raw)
-                    .map_err(|_| AlacoError::InvalidEscape {
-                        literal: raw.to_string(),
-                        span: (content_start..index + 1).into(),
-                    })?;
-
-                self.add_token_with_lexeme(TokenKind::String(value), self.current);
+                let template =
+                    self.split_string_template(raw)
+                        .map_err(|_| AlacoError::InvalidEscape {
+                            literal: raw.to_string(),
+                            span: (content_start..index + 1).into(),
+                        })?;
+                let kind = match template {
+                    Some(parts) => TokenKind::StringTemplate(parts),
+                    None => TokenKind::String(self.unescape_string(raw).map_err(|_| {
+                        AlacoError::InvalidEscape {
+                            literal: raw.to_string(),
+                            span: (content_start..index + 1).into(),
+                        }
+                    })?),
+                };
+                self.add_token_with_lexeme(kind, self.current);
 
                 return Ok(());
             }
@@ -246,6 +254,65 @@ impl<'a> Lexer<'a> {
         }
 
         Ok(result)
+    }
+
+    // Template parts alternate between literal text and identifier names.
+    // For example, `Hello, ${name}!` becomes [`Hello, `, `name`, `!`].
+    fn split_string_template(&self, raw: &str) -> Result<Option<Vec<String>>, ()> {
+        let mut parts = Vec::new();
+        let mut literal = String::new();
+        let mut chars = raw.char_indices().peekable();
+        let mut found = false;
+
+        while let Some((_, ch)) = chars.next() {
+            if ch == '\\' {
+                literal.push(ch);
+                if let Some((_, escaped)) = chars.next() {
+                    literal.push(escaped);
+                } else {
+                    return Err(());
+                }
+                continue;
+            }
+            if ch != '$' || !matches!(chars.peek(), Some((_, '{'))) {
+                literal.push(ch);
+                continue;
+            }
+
+            chars.next(); // opening brace after '$'
+            let Some((_, first)) = chars.next() else {
+                return Err(());
+            };
+            if !(first.is_ascii_alphabetic() || first == '_') {
+                return Err(());
+            }
+            let mut name = String::from(first);
+            let mut closed = false;
+            while let Some((_, next)) = chars.next() {
+                if next == '}' {
+                    closed = true;
+                    break;
+                }
+                if next.is_ascii_alphanumeric() || next == '_' {
+                    name.push(next);
+                } else {
+                    return Err(());
+                }
+            }
+            if !closed {
+                return Err(());
+            }
+            parts.push(self.unescape_string(&literal)?);
+            parts.push(name);
+            literal.clear();
+            found = true;
+        }
+
+        if !found {
+            return Ok(None);
+        }
+        parts.push(self.unescape_string(&literal)?);
+        Ok(Some(parts))
     }
 
     fn scan_number(&mut self) -> Result<(), AlacoError> {

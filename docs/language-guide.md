@@ -165,6 +165,20 @@ For these local imports, the importing directory can contain `helpers.aco` as we
 
 See the [standard-library reference](standard-library.md) for available modules and their behavior.
 
+### String interpolation
+
+Insert a variable into a string with `${name}` syntax. Literal text and variable values are combined at runtime:
+
+```alaco
+fn main() {
+    let name = "Alaco";
+    let version = 2026;
+    println("Hello, ${name}! Welcome to Alaco ${version}.");
+}
+```
+
+Interpolation currently supports variable names (including numeric and boolean variables), not arbitrary expressions. To try it, run `alaco run examples/string_interpolation.aco` from the repository root. Strings without `${...}` keep their existing behavior, including JSON text containing braces.
+
 ## Package manifests
 
 Alaco projects use `Alaco.toml` for package metadata. A minimal manifest has a `[package]` table with `name`, semantic `version`, `edition = "2026"`, and an optional `.aco` `entry` path (default `src/main.aco`). `[dependencies]` accepts version strings and inline tables with `path` or `version` fields. Run `alaco manifest` to validate and print this metadata. Dependency downloading and dependency-aware import resolution are not implemented yet; local imports remain relative to the importing file.

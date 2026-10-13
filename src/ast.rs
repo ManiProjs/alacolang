@@ -147,6 +147,7 @@ pub enum LoopKind {
 pub enum Expr {
     Number(String, Span),
     String(String, Span),
+    Interpolation(Vec<String>, Span),
     Bool(bool, Span),
 
     Identifier(String, Span),
@@ -205,6 +206,7 @@ impl Expr {
         match self {
             Expr::Number(_, span) => *span,
             Expr::String(_, span) => *span,
+            Expr::Interpolation(_, span) => *span,
             Expr::Bool(_, span) => *span,
             Expr::Identifier(_, span) => *span,
             Expr::StructLiteral { span, .. } => *span,

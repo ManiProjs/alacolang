@@ -309,7 +309,11 @@ impl CppCodegen {
                 requirements.shell = true;
             }
 
-            Expr::Identifier(..) | Expr::Number(..) | Expr::String(..) | Expr::Bool(..) => {}
+            Expr::Identifier(..)
+            | Expr::Number(..)
+            | Expr::String(..)
+            | Expr::Interpolation(..)
+            | Expr::Bool(..) => {}
 
             Expr::StructLiteral { fields, .. } => {
                 for (_, value) in fields {
@@ -415,6 +419,8 @@ impl CppCodegen {
         if requirements.string {
             self.push_line("#include <string>");
         }
+
+        self.push_line("#include <sstream>");
 
         if requirements.needs_io() {
             self.push_line("#include <iostream>");
@@ -1374,6 +1380,23 @@ static std::string __builtin_http_post(const std::string& url, const std::string
             Expr::Number(value, ..) => value.clone(),
 
             Expr::String(value, ..) => self.cpp_string_literal(value),
+
+            Expr::Interpolation(parts, ..) => {
+                let mut output = String::from("([&]() { std::ostringstream _alaco_interp; ");
+                for (index, part) in parts.iter().enumerate() {
+                    if index % 2 == 0 {
+                        output.push_str(&format!(
+                            "_alaco_interp << {}; ",
+                            self.cpp_string_literal(part)
+                        ));
+                    } else {
+                        output
+                            .push_str(&format!("_alaco_interp << {}; ", self.cpp_identifier(part)));
+                    }
+                }
+                output.push_str("return _alaco_interp.str(); }())");
+                output
+            }
 
             Expr::Bool(value, ..) => {
                 if *value {
