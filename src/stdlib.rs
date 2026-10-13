@@ -105,7 +105,7 @@ impl Stdlib {
             ))
         })?;
 
-        let mut parser = Parser::new(tokens, filename.clone(), source.clone());
+        let mut parser = Parser::new(tokens);
 
         let program = parser.parse().map_err(|error| {
             Report::new(error)

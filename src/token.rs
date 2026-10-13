@@ -53,6 +53,7 @@ pub enum TokenKind {
     Greater,
     GreaterEqual,
     Arrow,
+    PipeForward,
 
     // Punctuation
     LeftParen,

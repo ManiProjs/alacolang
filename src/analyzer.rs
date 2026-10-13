@@ -70,6 +70,18 @@ impl<'a> Analyzer<'a> {
 
         for item in &program.items {
             if let Item::Struct(structure) = item {
+                if matches!(
+                    structure.name.as_str(),
+                    "Int" | "Float" | "Bool" | "String" | "Shell" | "ShellResult" | "Void"
+                ) {
+                    return Err(self.error(
+                        format!(
+                            "struct name '{}' is reserved for a built-in type",
+                            structure.name
+                        ),
+                        Some(structure.span),
+                    ));
+                }
                 if !structs.insert(structure.name.as_str()) {
                     return Err(AlacoError::DuplicateStruct {
                         name: structure.name.clone(),
@@ -319,6 +331,58 @@ impl<'a> Analyzer<'a> {
                 ("__builtin_path_extension", vec![Type::String], Type::String),
                 ("__builtin_path_stem", vec![Type::String], Type::String),
                 ("__builtin_path_is_absolute", vec![Type::String], Type::Bool),
+                ("__builtin_json_is_valid", vec![Type::String], Type::Bool),
+                ("__builtin_json_escape", vec![Type::String], Type::String),
+                (
+                    "__builtin_json_has_key",
+                    vec![Type::String, Type::String],
+                    Type::Bool,
+                ),
+                (
+                    "__builtin_json_get_int",
+                    vec![Type::String, Type::String, Type::Int],
+                    Type::Int,
+                ),
+                (
+                    "__builtin_json_get_bool",
+                    vec![Type::String, Type::String, Type::Bool],
+                    Type::Bool,
+                ),
+                (
+                    "__builtin_json_get_string",
+                    vec![Type::String, Type::String, Type::String],
+                    Type::String,
+                ),
+                ("__builtin_toml_is_valid", vec![Type::String], Type::Bool),
+                (
+                    "__builtin_toml_has_key",
+                    vec![Type::String, Type::String],
+                    Type::Bool,
+                ),
+                (
+                    "__builtin_toml_get_string",
+                    vec![Type::String, Type::String, Type::String],
+                    Type::String,
+                ),
+                (
+                    "__builtin_toml_get_int",
+                    vec![Type::String, Type::String, Type::Int],
+                    Type::Int,
+                ),
+                (
+                    "__builtin_toml_get_bool",
+                    vec![Type::String, Type::String, Type::Bool],
+                    Type::Bool,
+                ),
+                ("__builtin_http_get", vec![Type::String], Type::String),
+                (
+                    "__builtin_http_post",
+                    vec![Type::String, Type::String],
+                    Type::String,
+                ),
+                ("__builtin_http_is_url", vec![Type::String], Type::Bool),
+                ("__builtin_time_unix_seconds", vec![], Type::Int),
+                ("__builtin_time_sleep_ms", vec![Type::Int], Type::Void),
             ] {
                 functions.insert(
                     name.to_string(),
@@ -539,6 +603,13 @@ impl<'a> Analyzer<'a> {
             } => {
                 let value_type = self.type_of_expression(value, scopes, program, functions)?;
 
+                if value_type == Type::Void {
+                    return Err(self.error(
+                        "a Void expression cannot initialize a variable",
+                        Some(value.span()),
+                    ));
+                }
+
                 if let Some(expected_type) = ty {
                     let struct_names = self.struct_names(program);
 
@@ -572,6 +643,90 @@ impl<'a> Analyzer<'a> {
                 );
             }
 
+            Stmt::Destructure {
+                struct_name,
+                mutable,
+                bindings,
+                value,
+                span,
+            } => {
+                let value_type = self.type_of_expression(value, scopes, program, functions)?;
+                if value_type != Type::Named(struct_name.clone()) {
+                    return Err(self.error(
+                        format!(
+                            "cannot destructure '{}' from type '{}'",
+                            struct_name,
+                            self.type_name(&value_type)
+                        ),
+                        Some(value.span()),
+                    ));
+                }
+                let structure = self.find_struct(program, struct_name).ok_or_else(|| {
+                    self.error(format!("unknown struct '{}'", struct_name), Some(*span))
+                })?;
+                let mut seen_fields = HashSet::new();
+                let mut seen_bindings = HashSet::new();
+                for (field_name, binding_name) in bindings {
+                    if !seen_fields.insert(field_name.as_str()) {
+                        return Err(self.error(
+                            format!("field '{}' is destructured more than once", field_name),
+                            Some(*span),
+                        ));
+                    }
+                    if !seen_bindings.insert(binding_name.as_str()) {
+                        return Err(self.error(
+                            format!("duplicate destructuring binding '{}'", binding_name),
+                            Some(*span),
+                        ));
+                    }
+                    if !structure
+                        .fields
+                        .iter()
+                        .any(|field| field.name == *field_name)
+                    {
+                        let suggestion = closest_name(
+                            field_name,
+                            structure.fields.iter().map(|field| field.name.as_str()),
+                        );
+                        let message = match suggestion {
+                            Some(suggestion) => format!(
+                                "struct '{}' has no field '{}'; did you mean '{}' ?",
+                                struct_name, field_name, suggestion
+                            ),
+                            None => {
+                                format!("struct '{}' has no field '{}'", struct_name, field_name)
+                            }
+                        };
+                        return Err(self.error(message, Some(*span)));
+                    }
+                    if scopes
+                        .last()
+                        .expect("analyzer scope stack is empty")
+                        .contains_key(binding_name)
+                    {
+                        return Err(AlacoError::DuplicateVariable {
+                            name: binding_name.clone(),
+                            span: (*span).into(),
+                        });
+                    }
+                }
+                let scope = scopes.last_mut().expect("analyzer scope stack is empty");
+                for (field_name, binding_name) in bindings {
+                    let field = structure
+                        .fields
+                        .iter()
+                        .find(|field| field.name == *field_name)
+                        .expect("field validated above");
+                    scope.insert(
+                        binding_name.clone(),
+                        Variable {
+                            ty: field.ty.clone(),
+                            mutable: *mutable,
+                        },
+                    );
+                }
+            }
+
             Stmt::Return(value, span) => {
                 let actual_type = match value {
                     Some(value) => self.type_of_expression(value, scopes, program, functions)?,
@@ -595,7 +750,21 @@ impl<'a> Analyzer<'a> {
                 }
 
                 if let Some(value) = value {
-                    self.type_of_expression(value, scopes, program, functions)?;
+                    let actual_type = self.type_of_expression(value, scopes, program, functions)?;
+                    self.ensure_assignable_at(
+                        expected_return,
+                        &actual_type,
+                        "stop value",
+                        value.span(),
+                    )?;
+                } else if *expected_return != Type::Void {
+                    return Err(self.error(
+                        format!(
+                            "stop without a value cannot exit a function returning {}",
+                            self.type_name(expected_return)
+                        ),
+                        Some(*span),
+                    ));
                 }
             }
 
@@ -842,6 +1011,15 @@ impl<'a> Analyzer<'a> {
 
                         Ok(operand_type)
                     }
+                    UnaryOp::Not => {
+                        self.require_type_at(
+                            &Type::Bool,
+                            &operand_type,
+                            "operand of logical not",
+                            operand.span(),
+                        )?;
+                        Ok(Type::Bool)
+                    }
                 }
             }
 
@@ -851,6 +1029,29 @@ impl<'a> Analyzer<'a> {
                 right,
                 span,
             } => self.type_of_binary(left, *operator, right, *span, scopes, program, functions),
+
+            Expr::Pipe {
+                input,
+                target,
+                span,
+            } => {
+                let mut arguments = vec![(**input).clone()];
+                let (callee, additional_arguments): (&Expr, &[Expr]) = match target.as_ref() {
+                    Expr::Call {
+                        callee, arguments, ..
+                    } => (callee, arguments),
+                    other => (other, &[]),
+                };
+                arguments.extend(additional_arguments.iter().cloned());
+                self.type_of_call(callee, &arguments, scopes, program, functions)
+                    .map_err(|error| match error {
+                        AlacoError::Analysis {
+                            message,
+                            span: None,
+                        } => self.error(message, Some(*span)),
+                        other => other,
+                    })
+            }
 
             Expr::Call {
                 callee,
@@ -1284,6 +1485,13 @@ impl<'a> Analyzer<'a> {
             | BinaryOp::Multiply
             | BinaryOp::Divide
             | BinaryOp::Modulo => {
+                if operator == BinaryOp::Modulo
+                    && (left_type != Type::Int || right_type != Type::Int)
+                {
+                    return Err(
+                        self.error("remainder operator '%' requires Int operands", Some(span))
+                    );
+                }
                 if operator == BinaryOp::Add
                     && left_type == Type::String
                     && right_type == Type::String
@@ -1312,6 +1520,22 @@ impl<'a> Analyzer<'a> {
             }
 
             BinaryOp::Equal | BinaryOp::NotEqual => {
+                if !matches!(
+                    left_type,
+                    Type::Int | Type::Float | Type::Bool | Type::String
+                ) || !matches!(
+                    right_type,
+                    Type::Int | Type::Float | Type::Bool | Type::String
+                ) {
+                    return Err(self.error(
+                        format!(
+                            "equality is not defined for {} and {}",
+                            self.type_name(&left_type),
+                            self.type_name(&right_type)
+                        ),
+                        Some(span),
+                    ));
+                }
                 if !self.types_compatible(&left_type, &right_type) {
                     return Err(self.error(
                         format!(
@@ -1402,7 +1626,7 @@ impl<'a> Analyzer<'a> {
                 self.check_member_assignment_target(object, scopes, span)
             }
 
-            _ => Ok(()),
+            _ => Err(AlacoError::InvalidAssignmentTarget { span: span.into() }),
         }
     }
 

@@ -1,0 +1,31 @@
+// JSON text utilities. Values remain strongly typed Alaco values; these
+// helpers validate JSON documents and safely escape string contents.
+fn is_valid(text: String) -> Bool {
+    return __builtin_json_is_valid(text);
+}
+
+fn escape(text: String) -> String {
+    return __builtin_json_escape(text);
+}
+
+fn quote(text: String) -> String {
+    return "\"" + escape(text) + "\"";
+}
+
+// Top-level object accessors return the supplied fallback when the key is
+// missing or has a different JSON type.
+fn has_key(text: String, key: String) -> Bool {
+    return __builtin_json_has_key(text, key);
+}
+
+fn get_string(text: String, key: String, fallback: String) -> String {
+    return __builtin_json_get_string(text, key, fallback);
+}
+
+fn get_int(text: String, key: String, fallback: Int) -> Int {
+    return __builtin_json_get_int(text, key, fallback);
+}
+
+fn get_bool(text: String, key: String, fallback: Bool) -> Bool {
+    return __builtin_json_get_bool(text, key, fallback);
+}

@@ -1,0 +1,7 @@
+fn unix_seconds() -> Int {
+    return __builtin_time_unix_seconds();
+}
+
+fn sleep_ms(milliseconds: Int) {
+    __builtin_time_sleep_ms(milliseconds);
+}

@@ -1,0 +1,22 @@
+// Lightweight TOML syntax sanity-checking for configuration inputs.
+// The current runtime supports sections and key/value assignments.
+fn is_valid(text: String) -> Bool {
+    return __builtin_toml_is_valid(text);
+}
+
+// Top-level scalar keys only. Missing keys or type mismatches use fallback.
+fn has_key(text: String, key: String) -> Bool {
+    return __builtin_toml_has_key(text, key);
+}
+
+fn get_string(text: String, key: String, fallback: String) -> String {
+    return __builtin_toml_get_string(text, key, fallback);
+}
+
+fn get_int(text: String, key: String, fallback: Int) -> Int {
+    return __builtin_toml_get_int(text, key, fallback);
+}
+
+fn get_bool(text: String, key: String, fallback: Bool) -> Bool {
+    return __builtin_toml_get_bool(text, key, fallback);
+}

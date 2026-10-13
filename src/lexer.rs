@@ -135,6 +135,17 @@ impl<'a> Lexer<'a> {
                 }
             }
 
+            '|' => {
+                if self.match_char('>') {
+                    self.add_token(TokenKind::PipeForward);
+                } else {
+                    return Err(AlacoError::UnexpectedCharacter {
+                        character: ch,
+                        span: self.span(),
+                    });
+                }
+            }
+
             // String
             '"' => {
                 self.scan_string()?;

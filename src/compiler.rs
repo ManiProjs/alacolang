@@ -35,7 +35,7 @@ impl Compiler {
             .tokenize()
             .map_err(|error| Self::report(error, filename, source))?;
 
-        let mut parser = Parser::new(tokens, filename.to_owned(), source.to_owned());
+        let mut parser = Parser::new(tokens);
 
         parser
             .parse()
@@ -72,13 +72,29 @@ impl Compiler {
 
         let cpp_path = output.with_extension("cpp");
 
-        fs::write(&cpp_path, cpp).into_diagnostic()?;
+        fs::write(&cpp_path, &cpp).into_diagnostic()?;
 
-        let result = Command::new("clang++")
+        let mut command = Command::new("clang++");
+        command
             .arg("-std=c++20")
             .arg(&cpp_path)
             .arg("-o")
-            .arg(output)
+            .arg(output);
+        #[cfg(target_os = "windows")]
+        command.arg("-lwinhttp");
+        #[cfg(target_os = "macos")]
+        if cpp.contains("<CFNetwork/CFNetwork.h>") {
+            command
+                .arg("-framework")
+                .arg("CoreFoundation")
+                .arg("-framework")
+                .arg("CFNetwork");
+        }
+        #[cfg(all(unix, not(target_os = "macos")))]
+        if cpp.contains("<openssl/ssl.h>") {
+            command.arg("-lssl").arg("-lcrypto");
+        }
+        let result = command
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
             .status()
@@ -209,6 +225,44 @@ mod tests {
         assert!(cpp.contains("static void println(bool value)"));
         assert!(cpp.contains("print(42);"));
         assert!(cpp.contains("println(true);"));
+    }
+
+    #[test]
+    fn struct_destructuring_supports_shorthand_renaming_and_omitted_fields() {
+        let cpp = Compiler::compile(
+            r#"
+            struct Point { x: Int, y: Int, label: String }
+            fn main() {
+                let point = Point { x: 7, y: 9, label: "ignored" };
+                let Point { x, y: vertical } = point;
+                println(x + vertical);
+            }
+            "#,
+            "struct_destructuring_test.aco",
+        )
+        .expect("valid struct destructuring should compile");
+
+        assert!(cpp.contains("const auto _alaco_destructure_"));
+        assert!(cpp.contains("auto x = _alaco_destructure_"));
+        assert!(cpp.contains("auto vertical = _alaco_destructure_"));
+    }
+
+    #[test]
+    fn struct_destructuring_rejects_unknown_fields_and_wrong_types() {
+        let unknown_field = Compiler::check(
+            "struct Point { x: Int } fn main() { let point = Point { x: 1 }; let Point { y } = point; }",
+            "destructure_unknown_field.aco",
+        );
+        assert!(unknown_field.is_err(), "unknown fields must be rejected");
+
+        let wrong_type = Compiler::check(
+            "struct Point { x: Int } struct Other { x: Int } fn main() { let other = Other { x: 1 }; let Point { x } = other; }",
+            "destructure_wrong_type.aco",
+        );
+        assert!(
+            wrong_type.is_err(),
+            "the pattern must match the value's struct type"
+        );
     }
 
     #[test]
@@ -393,6 +447,57 @@ struct Person {
                 "expected logical operator operands to be checked: {source}"
             );
         }
+    }
+
+    #[test]
+    fn logical_not_compiles_and_requires_a_boolean_operand() {
+        let source = "fn main() { let ready = true; println(!ready); println(!(2 < 1)); }";
+        let cpp = Compiler::compile(source, "logical_not_test.aco")
+            .expect("logical not should compile for boolean expressions");
+
+        assert!(cpp.contains("(!ready)"));
+        assert!(cpp.contains("(!(2 < 1))"));
+
+        // Exercise the whole pipeline, not only the generated C++ text.
+        let executable =
+            std::env::temp_dir().join(format!("alaco_logical_not_test_{}", std::process::id()));
+        Compiler::build(source, "logical_not_test.aco", &executable)
+            .expect("generated C++ should compile successfully");
+        let output = std::process::Command::new(&executable)
+            .output()
+            .expect("the compiled test program should run");
+        let _ = std::fs::remove_file(&executable);
+        assert!(output.status.success());
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "false\ntrue\n");
+
+        let invalid = Compiler::check(
+            "fn main() { let result = !42; }",
+            "invalid_logical_not_test.aco",
+        );
+        assert!(
+            invalid.is_err(),
+            "logical not must reject non-boolean values"
+        );
+        assert!(
+            format!("{:?}", invalid.unwrap_err()).contains("operand of logical not"),
+            "the error should explain which operand is invalid"
+        );
+    }
+
+    #[test]
+    fn binary_type_diagnostics_highlight_the_whole_expression() {
+        let error = Compiler::check(
+            "fn main() {\n    let result = 1 + true;\n}\n",
+            "binary_span_test.aco",
+        )
+        .expect_err("adding an integer and boolean must fail analysis");
+
+        let diagnostic = format!("{error:?}");
+        assert!(
+            diagnostic.contains("binary_span_test.aco:2:18"),
+            "the diagnostic should begin at the left operand, not the final token: {diagnostic}"
+        );
+        assert!(diagnostic.contains("1 + true"), "{diagnostic}");
     }
 
     #[test]
@@ -605,5 +710,264 @@ struct Person {
             diagnostic.contains("struct_member_typo_test.aco:4:18"),
             "{diagnostic}"
         );
+    }
+
+    #[test]
+    fn pipes_pass_the_left_value_as_the_first_argument() {
+        let cpp = Compiler::compile(
+            "fn double(value: Int) -> Int { return value * 2; } fn add(left: Int, right: Int) -> Int { return left + right; } fn main() { let result = 4 |> double |> add(3); println(result); }",
+            "pipe_test.aco",
+        )
+        .expect("valid pipe expressions should compile");
+
+        assert!(cpp.contains("double_alaco(4)"), "{cpp}");
+        assert!(cpp.contains("add(double_alaco(4), 3)"), "{cpp}");
+    }
+
+    #[test]
+    fn pipe_input_expression_is_evaluated_once() {
+        let source = r#"
+            fn source() -> Int { println("once"); return 4; }
+            fn double(value: Int) -> Int { return value * 2; }
+            fn main() { println(source() |> double); }
+        "#;
+        let output_path =
+            std::env::temp_dir().join(format!("alaco_pipe_once_{}", std::process::id()));
+        Compiler::build(source, "pipe_once_test.aco", &output_path)
+            .expect("side-effecting pipe input should compile");
+
+        let output = std::process::Command::new(&output_path)
+            .output()
+            .expect("generated test executable should run");
+        let _ = std::fs::remove_file(&output_path);
+
+        assert!(output.status.success());
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "once\n8\n");
+    }
+
+    #[test]
+    fn pipes_reject_type_mismatches_at_the_pipe_site() {
+        let error = Compiler::check(
+            "fn takes_text(value: String) -> Int { return 1; } fn main() { let result = 42 |> takes_text; }",
+            "pipe_type_test.aco",
+        )
+        .expect_err("pipe input types must be checked against function parameters");
+
+        assert!(format!("{error:?}").contains("expected String, found Int"));
+    }
+
+    #[test]
+    fn remainder_requires_integer_operands() {
+        let error = Compiler::check(
+            "fn main() { let result = 4.5 % 2; }",
+            "remainder_type_test.aco",
+        )
+        .expect_err("floating-point remainder must be rejected until supported explicitly");
+
+        assert!(format!("{error:?}").contains("requires Int operands"));
+    }
+
+    #[test]
+    fn equality_rejects_void_and_struct_values() {
+        let struct_error = Compiler::check(
+            "struct Point { x: Int } fn main() { let left = Point { x: 1 }; let right = Point { x: 1 }; let same = left == right; }",
+            "struct_equality_test.aco",
+        );
+        assert!(
+            struct_error.is_err(),
+            "struct equality needs a defined policy"
+        );
+
+        let void_error = Compiler::check(
+            "fn noop() {} fn main() { let same = noop() == noop(); }",
+            "void_equality_test.aco",
+        );
+        assert!(void_error.is_err(), "Void is not a comparable value type");
+    }
+
+    #[test]
+    fn type_safety_rejects_invalid_return_paths_and_void_values() {
+        let missing_return = Compiler::check(
+            "fn choose(flag: Bool) -> Int { if flag { return 1; } } fn main() {}",
+            "missing_return_path.aco",
+        );
+        assert!(
+            missing_return.is_err(),
+            "non-Void functions must return on every path"
+        );
+
+        let void_return_value = Compiler::check(
+            "fn nothing() {} fn main() { let value = nothing(); }",
+            "void_value.aco",
+        );
+        assert!(
+            void_return_value.is_err(),
+            "Void calls cannot be stored as values"
+        );
+
+        let wrong_struct_field = Compiler::check(
+            "struct Config { enabled: Bool } fn main() { let config = Config { enabled: 1 }; }",
+            "wrong_struct_field.aco",
+        );
+        assert!(
+            wrong_struct_field.is_err(),
+            "struct fields must enforce their declared types"
+        );
+    }
+
+    #[test]
+    fn inferred_variables_are_immutable_by_default_and_keep_their_inferred_type() {
+        let inferred = Compiler::check(
+            "fn main() { let count = 1; let title = \"Alaco\"; let enabled = true; println(count); println(title); println(enabled); }",
+            "inferred_variables.aco",
+        );
+        assert!(
+            inferred.is_ok(),
+            "types should be inferred from initializers"
+        );
+
+        let immutable_assignment = Compiler::check(
+            "fn main() { let count = 1; count = 2; }",
+            "immutable_by_default.aco",
+        );
+        assert!(
+            immutable_assignment.is_err(),
+            "let bindings must be immutable unless explicitly marked mut"
+        );
+
+        let type_change = Compiler::check(
+            "fn main() { let mut value = 1; value = \"now a string\"; }",
+            "inferred_type_is_stable.aco",
+        );
+        assert!(
+            type_change.is_err(),
+            "mut permits reassignment but must not disable static type checking"
+        );
+
+        let mutable_same_type = Compiler::check(
+            "fn main() { let mut count = 1; count = count + 1; }",
+            "mutable_inferred_variable.aco",
+        );
+        assert!(
+            mutable_same_type.is_ok(),
+            "mutable inferred variables should allow same-type reassignment"
+        );
+    }
+
+    #[test]
+    fn struct_fields_stay_typed_and_mutation_requires_a_mutable_binding() {
+        let immutable_field = Compiler::check(
+            "struct Config { port: Int } fn main() { let config = Config { port: 80 }; config.port = 443; }",
+            "immutable_struct_field.aco",
+        );
+        assert!(
+            immutable_field.is_err(),
+            "fields cannot be mutated through immutable bindings"
+        );
+
+        let mutable_field = Compiler::check(
+            "struct Config { port: Int } fn main() { let mut config = Config { port: 80 }; config.port = 443; }",
+            "mutable_struct_field.aco",
+        );
+        assert!(
+            mutable_field.is_ok(),
+            "fields may be mutated through mutable bindings"
+        );
+
+        let wrong_field_assignment = Compiler::check(
+            "struct Config { port: Int } fn main() { let mut config = Config { port: 80 }; config.port = \"443\"; }",
+            "wrong_struct_field_assignment.aco",
+        );
+        assert!(
+            wrong_field_assignment.is_err(),
+            "field assignments must match the field's declared type"
+        );
+    }
+
+    #[test]
+    fn void_values_cannot_be_bound_or_assigned_through_temporaries() {
+        let void_binding = Compiler::check(
+            "fn noop() {} fn main() { let value = noop(); }",
+            "void_binding_test.aco",
+        );
+        assert!(void_binding.is_err(), "Void cannot initialize a local");
+
+        let temporary_member = Compiler::check(
+            "struct Point { x: Int } fn make_point() -> Point { return Point { x: 1 }; } fn main() { make_point().x = 2; }",
+            "temporary_member_assignment_test.aco",
+        );
+        assert!(
+            temporary_member.is_err(),
+            "a temporary is not an assignment target"
+        );
+    }
+
+    #[test]
+    fn batteries_included_modules_compile_and_run() {
+        let source = r#"
+            import std.json;
+            import std.toml;
+            import std.http;
+            import std.timing;
+
+            fn double(value: Int) -> Int { return value * 2; }
+
+            fn main() {
+                println(json.is_valid("{\"ok\":true,\"n\":3}"));
+                println(json.is_valid("{bad}"));
+                println(json.quote("a\nb"));
+                println(json.has_key("{\"n\":3}", "n"));
+                println(json.get_int("{\"n\":3}", "n", 99));
+                println(json.get_string("{\"name\":\"Alaco\"}", "name", "missing"));
+                println(json.get_bool("{\"ok\":true}", "ok", false));
+                println(toml.is_valid("[app]\nname = \"Alaco\""));
+                println(toml.is_valid("count = nonsense"));
+                println(toml.get_int("count = 4", "count", 99));
+                println(http.is_url("https://example.com"));
+                println(21 |> double);
+                println(timing.unix_seconds() > 0);
+            }
+        "#;
+
+        let output_path = std::env::temp_dir().join(format!(
+            "alaco_batteries_integration_{}",
+            std::process::id()
+        ));
+        Compiler::build(source, "batteries_integration_test.aco", &output_path)
+            .expect("the standard library runtime should compile to C++");
+
+        let output = std::process::Command::new(&output_path)
+            .output()
+            .expect("the generated test executable should run");
+        let _ = std::fs::remove_file(&output_path);
+
+        assert!(output.status.success());
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            stdout.contains(
+                "true\nfalse\n\"a\\nb\"\ntrue\n3\nAlaco\ntrue\ntrue\nfalse\n4\ntrue\n42\ntrue"
+            ),
+            "{stdout}"
+        );
+    }
+
+    #[test]
+    fn json_rejects_non_json_whitespace() {
+        let source = format!(
+            "import std.json; fn main() {{ println(json.is_valid(\"{}\")); }}",
+            '\u{000b}'
+        );
+        let output_path =
+            std::env::temp_dir().join(format!("alaco_json_whitespace_{}", std::process::id()));
+        Compiler::build(&source, "json_whitespace_test.aco", &output_path)
+            .expect("JSON whitespace test should compile");
+
+        let output = std::process::Command::new(&output_path)
+            .output()
+            .expect("generated test executable should run");
+        let _ = std::fs::remove_file(&output_path);
+
+        assert!(output.status.success());
+        assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "false");
     }
 }

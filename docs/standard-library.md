@@ -130,6 +130,59 @@ Import with `import std.path;`. These functions inspect or combine path strings;
 
 Path parsing and joining follow `std::filesystem` semantics, so separator and absolute-path behavior can differ between operating systems.
 
+## `std.json` — JSON text utilities
+
+Import with `import std.json;`.
+
+| Function | Behavior and limitations |
+| --- | --- |
+| `is_valid(text: String)` | Validate a JSON value, including nested arrays and objects, strings, numbers, booleans, and `null`. |
+| `escape(text: String)` | Escape string contents for use inside a JSON string; it does not add surrounding quotes. |
+| `quote(text: String)` | Escape a string and add JSON double quotes. |
+| `has_key(text: String, key: String)` | Check for a key in a top-level JSON object. |
+| `get_string(text: String, key: String, fallback: String)` | Read a top-level string property or return the fallback. |
+| `get_int(text: String, key: String, fallback: Int)` | Read a top-level integer property or return the fallback. |
+| `get_bool(text: String, key: String, fallback: Bool)` | Read a top-level boolean property or return the fallback. |
+
+These typed accessors read top-level object properties; they do not expose a dynamic JSON value/map/list type or recursively navigate nested objects. String escape decoding covers common escapes.
+
+## `std.toml` — TOML configuration utilities
+
+Import with `import std.toml;`.
+
+| Function | Behavior and limitations |
+| --- | --- |
+| `is_valid(text: String)` | Validate a limited subset of scalar TOML assignments and section headers. |
+| `has_key(text: String, key: String)` | Check for a top-level key. |
+| `get_string(text: String, key: String, fallback: String)` | Read a top-level quoted string or return the fallback. |
+| `get_int(text: String, key: String, fallback: Int)` | Read a top-level integer or return the fallback. |
+| `get_bool(text: String, key: String, fallback: Bool)` | Read a top-level boolean or return the fallback. |
+
+This is not a complete TOML 1.0 parser. Accessors currently target top-level scalar keys; table-scoped keys, full arrays/inline tables, dates, and every grammar edge case are not fully supported.
+
+## `std.http` — HTTP requests
+
+Import with `import std.http;`.
+
+| Function | Behavior and limitations |
+| --- | --- |
+| `is_url(url: String)` | Check whether a URL starts with `http://` or `https://`. |
+| `get(url: String)` | Return the response body for a successful GET request. |
+| `post_json(url: String, body: String)` | POST a body with `Content-Type: application/json` and return the response body. |
+
+No `curl` executable is spawned. Windows uses WinHTTP, macOS uses CFNetwork, and other Unix-like builds use OpenSSL 1.1.0+ for TLS with native sockets for transport. The OpenSSL development headers and libraries must be installed when compiling an HTTP-using program on those Unix-like systems. HTTPS certificate and hostname verification are enabled. Failed requests and non-2xx responses return an empty string, so an empty response cannot be distinguished from a failure. The API does not expose status codes or response headers.
+
+Runnable examples: `examples/http_demo.aco`, `examples/json_demo.aco`, `examples/toml_demo.aco`, and `examples/type_safety.aco`.
+
+## `std.timing` — basic time utilities
+
+Import with `import std.timing;`.
+
+| Function | Behavior |
+| --- | --- |
+| `unix_seconds()` | Current Unix timestamp in whole seconds. |
+| `sleep_ms(milliseconds: Int)` | Pause the current thread for the requested number of milliseconds; non-positive values do nothing. |
+
 ## Example
 
 ```alaco
@@ -148,4 +201,3 @@ fn main() {
 ```
 
 The example creates `hello.txt` in the program's working directory. Remove it if you do not want to keep the file.
-

@@ -1,0 +1,18 @@
+import std.json;
+
+fn main() {
+    let payload = "{\"name\":\"Alaco\",\"version\":3,\"stable\":true}";
+
+    println("Valid JSON:");
+    println(json.is_valid(payload));
+    println("Has version:");
+    println(json.has_key(payload, "version"));
+    println("Name:");
+    println(json.get_string(payload, "name", "unknown"));
+    println("Version:");
+    println(json.get_int(payload, "version", 0));
+    println("Stable:");
+    println(json.get_bool(payload, "stable", false));
+    println("Missing field fallback:");
+    println(json.get_string(payload, "missing", "fallback value"));
+}

@@ -1,0 +1,21 @@
+struct ServerConfig {
+    port: Int,
+    tls_enabled: Bool,
+}
+
+fn effective_port(config: ServerConfig) -> Int {
+    if config.tls_enabled {
+        return 443;
+    }
+    return config.port;
+}
+
+fn main() {
+    let config = ServerConfig {
+        port: 8080,
+        tls_enabled: true,
+    };
+
+    println("Effective port:");
+    println(effective_port(config));
+}

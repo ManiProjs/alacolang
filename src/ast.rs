@@ -95,6 +95,14 @@ pub enum Stmt {
         span: Span,
     },
 
+    Destructure {
+        struct_name: String,
+        mutable: bool,
+        bindings: Vec<(String, String)>,
+        value: Expr,
+        span: Span,
+    },
+
     Return(Option<Expr>, Span),
 
     Stop(Option<Expr>, Span),
@@ -154,6 +162,12 @@ pub enum Expr {
         span: Span,
     },
 
+    Pipe {
+        input: Box<Expr>,
+        target: Box<Expr>,
+        span: Span,
+    },
+
     Unary {
         operator: UnaryOp,
         operand: Box<Expr>,
@@ -193,6 +207,7 @@ impl Expr {
             Expr::Identifier(_, span) => *span,
             Expr::StructLiteral { span, .. } => *span,
             Expr::Binary { span, .. } => *span,
+            Expr::Pipe { span, .. } => *span,
             Expr::Unary { span, .. } => *span,
             Expr::Call { span, .. } => *span,
             Expr::Member { span, .. } => *span,
@@ -206,6 +221,7 @@ impl Stmt {
     pub fn span(&self) -> Span {
         match self {
             Stmt::Let { span, .. } => *span,
+            Stmt::Destructure { span, .. } => *span,
             Stmt::Return(_, span) => *span,
             Stmt::Stop(_, span) => *span,
             Stmt::Skip(span) => *span,
@@ -220,6 +236,7 @@ impl Stmt {
 #[derive(Debug, Clone, Copy)]
 pub enum UnaryOp {
     Negate,
+    Not,
 }
 
 #[derive(Debug, Clone, PartialEq)]

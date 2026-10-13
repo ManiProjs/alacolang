@@ -25,18 +25,41 @@ cargo run -- run hello.aco
 cargo run -- check hello.aco
 ```
 
-When using an installed `alaco` executable, the equivalent commands are `alaco run hello.aco` and `alaco check hello.aco`. `run` compiles and executes the program; `check` parses and analyzes it without building an executable.
+When using an installed `alaco` executable, use the same commands directly. The `alaco` command is the entry point for the full toolchain.
 
 ## CLI reference
 
 | Command | Description |
 | --- | --- |
-| `alaco check <file.aco>` | Parse and analyze a source file. |
-| `alaco explain <file.aco>` | Check a file and show diagnostics when errors are found. |
-| `alaco build <file.aco>` | Build a native executable next to the source file. |
-| `alaco build <file.aco> --output <path>` | Build to a specified output path. |
-| `alaco run <file.aco>` | Compile and run a program. |
+| `alaco new <name>` | Create a new project with a working entry point. |
+| `alaco init [directory]` | Initialize a project in an existing directory without overwriting an entry point. |
+| `alaco check [file.aco]` | Parse and analyze a source file. Defaults to `src/main.aco` in a project. |
+| `alaco explain [file.aco]` | Check a file and show diagnostics when errors are found. |
+| `alaco build [file.aco]` | Build a native executable. Project builds go in `target/`. |
+| `alaco build [file.aco] --output <path>` | Build to a specified output path. |
+| `alaco run [file.aco]` | Compile and run a program, cleaning up the temporary executable. |
+| `alaco test [path]` | Build and run each `.aco` test program in `tests/`, or in a supplied file/directory. |
+| `alaco clean` | Remove generated artifacts in the current project's `target/` directory. |
+| `alaco doctor` | Check for the C++ compiler and installed standard library. |
 | `alaco --help` | Show command-line help. |
+
+For a quick start:
+
+```sh
+alaco new hello
+cd hello
+alaco run
+alaco check
+alaco build
+alaco test
+alaco doctor
+```
+
+Inside a project, `src/main.aco` is the default entry point, so the filename can be omitted. Pass a `.aco` path to run a standalone file instead.
+
+### Tests
+
+Put test programs in `tests/` with one `.aco` file per test. Each file is compiled and run as a separate program; a successful process exit means the test passed. A test can also be run directly with `alaco test tests/example.aco`. Tests in the supplied directory are discovered one level deep and run in filename order. Use `alaco clean` to remove generated build artifacts.
 
 ## Documentation
 
@@ -57,6 +80,8 @@ fn main() {
 ```
 
 `std.io` is available by default. Other modules must be imported explicitly. See the full [standard-library reference](docs/standard-library.md) for all currently documented modules.
+
+The standard library includes filesystem, environment, path, JSON text, basic TOML syntax checking, HTTP GET/JSON POST, and timing helpers. The JSON/TOML/HTTP APIs are intentionally small today; see the reference for their limitations.
 
 ## Compiler diagnostics
 

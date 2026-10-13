@@ -1,7 +1,3 @@
-use std::{f32::consts::E, sync::Arc};
-
-use miette::NamedSource;
-
 use crate::{
     ast::{
         Block, Expr, Function, Import, Item, LoopKind, MatchArm, MatchPattern, Param, Program,
@@ -15,16 +11,11 @@ use crate::{
 pub struct Parser {
     tokens: Vec<Token>,
     current: usize,
-    source: Arc<NamedSource<String>>,
 }
 
 impl Parser {
-    pub fn new(tokens: Vec<Token>, filename: impl Into<String>, source: impl Into<String>) -> Self {
-        Self {
-            tokens,
-            current: 0,
-            source: Arc::new(NamedSource::new(filename.into(), source.into())),
-        }
+    pub fn new(tokens: Vec<Token>) -> Self {
+        Self { tokens, current: 0 }
     }
 
     pub fn parse(&mut self) -> Result<Program, AlacoError> {
@@ -318,6 +309,48 @@ impl Parser {
 
         let name = self.consume_identifier("expected variable name after 'let'")?;
 
+        if self.check(&TokenKind::LeftBrace) {
+            self.advance();
+            self.skip_newlines();
+            let mut bindings = Vec::new();
+            while !self.check(&TokenKind::RightBrace) && !self.is_at_end() {
+                let field =
+                    self.consume_identifier("expected field name in destructuring pattern")?;
+                let binding = if self.matches(&TokenKind::Colon) {
+                    self.consume_identifier("expected binding name after ':'")?
+                } else {
+                    field.clone()
+                };
+                bindings.push((field, binding));
+                if self.matches(&TokenKind::Comma) || self.matches(&TokenKind::Semicolon) {
+                    self.skip_newlines();
+                } else if self.matches(&TokenKind::Newline) {
+                    self.skip_newlines();
+                } else if !self.check(&TokenKind::RightBrace) {
+                    return Err(
+                        self.error("expected ',', newline, or '}' in destructuring pattern")
+                    );
+                }
+            }
+            self.consume(
+                &TokenKind::RightBrace,
+                "expected '}' after destructuring pattern",
+            )?;
+            self.consume(
+                &TokenKind::Equal,
+                "expected '=' after destructuring pattern",
+            )?;
+            let value = self.parse_expression()?;
+            let end = value.span().end;
+            return Ok(Stmt::Destructure {
+                struct_name: name,
+                mutable,
+                bindings,
+                value,
+                span: Span { start, end },
+            });
+        }
+
         let ty = if self.matches(&TokenKind::Colon) {
             Some(self.parse_type()?)
         } else {
@@ -537,7 +570,7 @@ impl Parser {
     }
 
     fn parse_assignment(&mut self) -> Result<Expr, AlacoError> {
-        let expression = self.parse_or()?;
+        let expression = self.parse_pipe()?;
 
         let operator = if self.matches(&TokenKind::Equal) {
             Some(BinaryOp::Assign)
@@ -555,7 +588,10 @@ impl Parser {
 
         if let Some(operator) = operator {
             let value = self.parse_assignment()?;
-            let span = self.token_span(self.previous());
+            let span = Span {
+                start: expression.span().start,
+                end: value.span().end,
+            };
 
             Ok(Expr::Binary {
                 left: Box::new(expression),
@@ -568,11 +604,31 @@ impl Parser {
         }
     }
 
+    fn parse_pipe(&mut self) -> Result<Expr, AlacoError> {
+        let mut expression = self.parse_or()?;
+        while self.matches(&TokenKind::PipeForward) {
+            let target = self.parse_or()?;
+            let span = Span {
+                start: expression.span().start,
+                end: target.span().end,
+            };
+            expression = Expr::Pipe {
+                input: Box::new(expression),
+                target: Box::new(target),
+                span,
+            };
+        }
+        Ok(expression)
+    }
+
     fn parse_or(&mut self) -> Result<Expr, AlacoError> {
         let mut expression = self.parse_and()?;
         while self.matches(&TokenKind::Or) {
             let right = self.parse_and()?;
-            let span = self.token_span(self.previous());
+            let span = Span {
+                start: expression.span().start,
+                end: right.span().end,
+            };
             expression = Expr::Binary {
                 left: Box::new(expression),
                 operator: BinaryOp::Or,
@@ -587,7 +643,10 @@ impl Parser {
         let mut expression = self.parse_equality()?;
         while self.matches(&TokenKind::And) {
             let right = self.parse_equality()?;
-            let span = self.token_span(self.previous());
+            let span = Span {
+                start: expression.span().start,
+                end: right.span().end,
+            };
             expression = Expr::Binary {
                 left: Box::new(expression),
                 operator: BinaryOp::And,
@@ -614,7 +673,10 @@ impl Parser {
             };
 
             let right = self.parse_comparison()?;
-            let span = self.token_span(self.previous());
+            let span = Span {
+                start: expression.span().start,
+                end: right.span().end,
+            };
 
             expression = Expr::Binary {
                 left: Box::new(expression),
@@ -649,7 +711,10 @@ impl Parser {
             };
 
             let right = self.parse_term()?;
-            let span = self.token_span(self.previous());
+            let span = Span {
+                start: expression.span().start,
+                end: right.span().end,
+            };
 
             expression = Expr::Binary {
                 left: Box::new(expression),
@@ -678,7 +743,10 @@ impl Parser {
             };
 
             let right = self.parse_factor()?;
-            let span = self.token_span(self.previous());
+            let span = Span {
+                start: expression.span().start,
+                end: right.span().end,
+            };
 
             expression = Expr::Binary {
                 left: Box::new(expression),
@@ -710,7 +778,10 @@ impl Parser {
             };
 
             let right = self.parse_unary()?;
-            let span = self.token_span(self.previous());
+            let span = Span {
+                start: expression.span().start,
+                end: right.span().end,
+            };
 
             expression = Expr::Binary {
                 left: Box::new(expression),
@@ -725,11 +796,30 @@ impl Parser {
 
     fn parse_unary(&mut self) -> Result<Expr, AlacoError> {
         if self.matches(&TokenKind::Minus) {
+            let start = self.previous().span.offset();
             let operand = self.parse_unary()?;
-            let span = self.token_span(self.previous());
+            let span = Span {
+                start,
+                end: operand.span().end,
+            };
 
             return Ok(Expr::Unary {
                 operator: UnaryOp::Negate,
+                operand: Box::new(operand),
+                span,
+            });
+        }
+
+        if self.matches(&TokenKind::Bang) {
+            let start = self.previous().span.offset();
+            let operand = self.parse_unary()?;
+            let span = Span {
+                start,
+                end: operand.span().end,
+            };
+
+            return Ok(Expr::Unary {
+                operator: UnaryOp::Not,
                 operand: Box::new(operand),
                 span,
             });

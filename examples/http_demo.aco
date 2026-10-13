@@ -1,0 +1,21 @@
+import std.http;
+
+fn main() {
+    let url = "https://example.com/";
+
+    println("URL accepted:");
+    println(http.is_url(url));
+    println("Requesting HTTPS page...");
+
+    let response = http.get(url);
+    if response == "" {
+        println("Request failed or returned an empty body.");
+    } else {
+        println("HTTPS request succeeded; response body follows:");
+        println(response);
+    }
+
+    // JSON POST example (uncomment to send a request to a test endpoint):
+    // let result = http.post_json("https://httpbin.org/post", "{\"hello\":\"Alaco\"}");
+    // println(result);
+}

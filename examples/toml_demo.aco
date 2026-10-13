@@ -1,0 +1,16 @@
+import std.toml;
+
+fn main() {
+    let config = "app_name = \"Alaco\"\nport = 8080\ndebug = true\n";
+
+    println("Valid TOML subset:");
+    println(toml.is_valid(config));
+    println("App name:");
+    println(toml.get_string(config, "app_name", "Unnamed"));
+    println("Port:");
+    println(toml.get_int(config, "port", 3000));
+    println("Debug mode:");
+    println(toml.get_bool(config, "debug", false));
+    println("Invalid assignment rejected:");
+    println(toml.is_valid("port = not_a_value"));
+}

@@ -19,6 +19,10 @@ struct RuntimeRequirements {
     fs: bool,
     env: bool,
     path: bool,
+    json: bool,
+    toml: bool,
+    http: bool,
+    time: bool,
 }
 
 impl RuntimeRequirements {
@@ -27,7 +31,15 @@ impl RuntimeRequirements {
     }
 
     fn needs_any_runtime(&self) -> bool {
-        self.needs_io() || self.shell || self.fs || self.env || self.path
+        self.needs_io()
+            || self.shell
+            || self.fs
+            || self.env
+            || self.path
+            || self.json
+            || self.toml
+            || self.http
+            || self.time
     }
 }
 
@@ -145,6 +157,10 @@ impl CppCodegen {
                 "std.fs" => requirements.fs = true,
                 "std.env" => requirements.env = true,
                 "std.path" => requirements.path = true,
+                "std.json" => requirements.json = true,
+                "std.toml" => requirements.toml = true,
+                "std.http" => requirements.http = true,
+                "std.timing" => requirements.time = true,
                 _ => {}
             }
             self.scan_items_for_runtime(&module.program.items, &mut requirements);
@@ -214,6 +230,8 @@ impl CppCodegen {
 
                 self.scan_expr_for_runtime(value, requirements);
             }
+
+            Stmt::Destructure { value, .. } => self.scan_expr_for_runtime(value, requirements),
 
             Stmt::Return(value, ..) | Stmt::Stop(value, ..) => {
                 if let Some(value) = value {
@@ -294,6 +312,11 @@ impl CppCodegen {
                 self.scan_expr_for_runtime(right, requirements);
             }
 
+            Expr::Pipe { input, target, .. } => {
+                self.scan_expr_for_runtime(input, requirements);
+                self.scan_expr_for_runtime(target, requirements);
+            }
+
             Expr::Unary { operand, .. } => {
                 self.scan_expr_for_runtime(operand, requirements);
             }
@@ -307,6 +330,23 @@ impl CppCodegen {
                         "__builtin_println" | "println" => requirements.println = true,
                         "__builtin_eprint" | "eprint" => requirements.eprint = true,
                         "__builtin_eprintln" | "eprintln" => requirements.eprintln = true,
+                        "__builtin_json_is_valid"
+                        | "__builtin_json_escape"
+                        | "__builtin_json_has_key"
+                        | "__builtin_json_get_string"
+                        | "__builtin_json_get_int"
+                        | "__builtin_json_get_bool" => requirements.json = true,
+                        "__builtin_toml_is_valid"
+                        | "__builtin_toml_has_key"
+                        | "__builtin_toml_get_string"
+                        | "__builtin_toml_get_int"
+                        | "__builtin_toml_get_bool" => requirements.toml = true,
+                        "__builtin_http_get" | "__builtin_http_post" | "__builtin_http_is_url" => {
+                            requirements.http = true
+                        }
+                        "__builtin_time_unix_seconds" | "__builtin_time_sleep_ms" => {
+                            requirements.time = true
+                        }
                         _ => {}
                     }
                 }
@@ -388,6 +428,40 @@ impl CppCodegen {
             self.push_line("#include <string>");
         }
 
+        if requirements.json || requirements.toml || requirements.http {
+            self.push_line("#include <cctype>");
+            self.push_line("#include <cstdio>");
+            self.push_line("#include <string>");
+        }
+
+        if requirements.http {
+            self.push_line("#if defined(_WIN32)");
+            self.push_line("#include <windows.h>");
+            self.push_line("#include <winhttp.h>");
+            self.push_line("#elif defined(__APPLE__)");
+            self.push_line("#include <CoreFoundation/CoreFoundation.h>");
+            self.push_line("#include <CFNetwork/CFNetwork.h>");
+            self.push_line("#include <sys/types.h>");
+            self.push_line("#include <sys/socket.h>");
+            self.push_line("#include <netdb.h>");
+            self.push_line("#include <sys/time.h>");
+            self.push_line("#include <unistd.h>");
+            self.push_line("#else");
+            self.push_line("#include <sys/types.h>");
+            self.push_line("#include <sys/socket.h>");
+            self.push_line("#include <netdb.h>");
+            self.push_line("#include <sys/time.h>");
+            self.push_line("#include <unistd.h>");
+            self.push_line("#include <openssl/ssl.h>");
+            self.push_line("#include <openssl/err.h>");
+            self.push_line("#endif");
+        }
+
+        if requirements.time {
+            self.push_line("#include <chrono>");
+            self.push_line("#include <thread>");
+        }
+
         self.push_line("");
     }
 
@@ -421,6 +495,19 @@ impl CppCodegen {
 
         if requirements.path {
             self.generate_path_runtime();
+        }
+
+        if requirements.json {
+            self.generate_json_runtime();
+        }
+        if requirements.toml {
+            self.generate_toml_runtime();
+        }
+        if requirements.http {
+            self.generate_http_runtime();
+        }
+        if requirements.time {
+            self.generate_time_runtime();
         }
 
         self.push_line("// End Alaco runtime");
@@ -544,6 +631,206 @@ impl CppCodegen {
         self.push_line("static std::string __builtin_path_extension(const std::string& value) { auto ext = std::filesystem::path(value).extension().string(); return !ext.empty() && ext.front() == '.' ? ext.substr(1) : ext; }");
         self.push_line("static std::string __builtin_path_stem(const std::string& value) { return std::filesystem::path(value).stem().string(); }");
         self.push_line("static bool __builtin_path_is_absolute(const std::string& value) { return std::filesystem::path(value).is_absolute(); }");
+        self.push_line("");
+    }
+
+    fn generate_json_runtime(&mut self) {
+        self.push_line("class __AlacoJsonParser {");
+        self.push_line("    const std::string& text; std::size_t pos = 0;");
+        // JSON permits exactly four whitespace bytes; std::isspace also accepts
+        // vertical tab and form feed, which must not make invalid JSON pass.
+        self.push_line("    void ws() { while (pos < text.size() && (text[pos] == ' ' || text[pos] == '\\t' || text[pos] == '\\n' || text[pos] == '\\r')) ++pos; }");
+        self.push_line("    bool take(char c) { ws(); if (pos < text.size() && text[pos] == c) { ++pos; return true; } return false; }");
+        self.push_line("    bool string_value() { if (!take('\\\"')) return false; while (pos < text.size()) { unsigned char c = static_cast<unsigned char>(text[pos++]); if (c == '\\\"') return true; if (c < 0x20) return false; if (c == '\\\\') { if (pos >= text.size()) return false; char e = text[pos++]; if (e == 'u') { for (int n = 0; n < 4; ++n) { if (pos >= text.size() || !std::isxdigit(static_cast<unsigned char>(text[pos++]))) return false; } } else if (e != '\\\"' && e != '\\\\' && e != '/' && e != 'b' && e != 'f' && e != 'n' && e != 'r' && e != 't') return false; } } return false; }");
+        self.push_line("    bool number_value() { std::size_t start = pos; if (pos < text.size() && text[pos] == '-') ++pos; if (pos >= text.size()) return false; if (text[pos] == '0') ++pos; else { if (!std::isdigit(static_cast<unsigned char>(text[pos]))) return false; while (pos < text.size() && std::isdigit(static_cast<unsigned char>(text[pos]))) ++pos; } if (pos < text.size() && text[pos] == '.') { ++pos; std::size_t digits = pos; while (pos < text.size() && std::isdigit(static_cast<unsigned char>(text[pos]))) ++pos; if (digits == pos) return false; } if (pos < text.size() && (text[pos] == 'e' || text[pos] == 'E')) { ++pos; if (pos < text.size() && (text[pos] == '+' || text[pos] == '-')) ++pos; std::size_t digits = pos; while (pos < text.size() && std::isdigit(static_cast<unsigned char>(text[pos]))) ++pos; if (digits == pos) return false; } return pos > start; }");
+        self.push_line("    bool value() { ws(); if (pos >= text.size()) return false; char c = text[pos]; if (c == '\\\"') return string_value(); if (c == '{') { ++pos; ws(); if (take('}')) return true; do { if (!string_value() || !take(':') || !value()) return false; ws(); if (take('}')) return true; } while (take(',')); return false; } if (c == '[') { ++pos; ws(); if (take(']')) return true; do { if (!value()) return false; ws(); if (take(']')) return true; } while (take(',')); return false; } for (const char* word : {\"true\", \"false\", \"null\"}) { std::string candidate(word); if (text.compare(pos, candidate.size(), candidate) == 0) { pos += candidate.size(); return true; } } return number_value(); }");
+        self.push_line("    std::string raw_for_key(const std::string& wanted) { pos = 0; if (!take('{')) return {}; ws(); if (take('}')) return {}; while (pos < text.size()) { ws(); std::size_t key_start = pos; if (!string_value()) return {}; std::size_t key_end = pos; std::string key = text.substr(key_start, key_end - key_start); if (!take(':')) return {}; std::size_t value_start = pos; if (!value()) return {}; std::size_t value_end = pos; if (key == std::string(\"\\\"\") + wanted + \"\\\"\") return text.substr(value_start, value_end - value_start); if (!take(',')) break; } return {}; }");
+        self.push_line("public: explicit __AlacoJsonParser(const std::string& source) : text(source) {} bool valid() { if (!value()) return false; ws(); return pos == text.size(); } std::string get_raw(const std::string& key) { if (!valid()) return {}; return raw_for_key(key); }");
+        self.push_line("};");
+        self.push_line("static bool __builtin_json_is_valid(const std::string& text) { return __AlacoJsonParser(text).valid(); }");
+        self.push_line("static std::string __builtin_json_get_raw(const std::string& text, const std::string& key) { return __AlacoJsonParser(text).get_raw(key); }");
+        self.push_line("static bool __builtin_json_has_key(const std::string& text, const std::string& key) { return !__builtin_json_get_raw(text, key).empty(); }");
+        self.push_line("static long long __builtin_json_get_int(const std::string& text, const std::string& key, long long fallback) { auto raw = __builtin_json_get_raw(text, key); if (raw.empty() || raw.find_first_of(\".eE\") != std::string::npos) return fallback; try { std::size_t n = 0; auto v = std::stoll(raw, &n); return n == raw.size() ? v : fallback; } catch (...) { return fallback; } }");
+        self.push_line("static bool __builtin_json_get_bool(const std::string& text, const std::string& key, bool fallback) { auto raw = __builtin_json_get_raw(text, key); return raw == \"true\" ? true : raw == \"false\" ? false : fallback; }");
+        self.push_line("static std::string __builtin_json_get_string(const std::string& text, const std::string& key, const std::string& fallback) { auto raw = __builtin_json_get_raw(text, key); if (raw.size() < 2 || raw.front() != 34 || raw.back() != 34) return fallback; std::string out; for (std::size_t i = 1; i + 1 < raw.size(); ++i) { char c = raw[i]; if (c == 92 && i + 2 < raw.size()) { char e = raw[++i]; switch (e) { case 'n': out += char(10); break; case 'r': out += char(13); break; case 't': out += char(9); break; case 'b': out += char(8); break; case 'f': out += char(12); break; default: out += e; break; } } else out += c; } return out; }");
+        self.push_line("static std::string __builtin_json_escape(const std::string& text) { std::string out; const char* hex = \"0123456789abcdef\"; for (unsigned char c : text) { switch (c) { case '\\\"': out += \"\\\\\\\"\"; break; case '\\\\': out += \"\\\\\\\\\"; break; case '\\b': out += \"\\\\b\"; break; case '\\f': out += \"\\\\f\"; break; case '\\n': out += \"\\\\n\"; break; case '\\r': out += \"\\\\r\"; break; case '\\t': out += \"\\\\t\"; break; default: if (c < 0x20) { out += \"\\\\u00\"; out += hex[c >> 4]; out += hex[c & 15]; } else out += static_cast<char>(c); } } return out; }");
+        self.push_line("");
+    }
+
+    fn generate_toml_runtime(&mut self) {
+        self.push_line("static bool __builtin_toml_is_valid(const std::string& text) {");
+        self.push_line("    std::size_t start = 0; while (start <= text.size()) { std::size_t end = text.find('\\n', start); if (end == std::string::npos) end = text.size(); std::string line = text.substr(start, end - start); start = end + 1;");
+        self.push_line("        auto first = line.find_first_not_of(\" \\t\\r\"); if (first == std::string::npos) { if (end == text.size()) break; continue; } line = line.substr(first); bool quoted = false, escaped = false; std::size_t comment = std::string::npos; for (std::size_t i = 0; i < line.size(); ++i) { char c = line[i]; if (escaped) { escaped = false; continue; } if (quoted && c == '\\\\') { escaped = true; continue; } if (c == '\\\"') quoted = !quoted; if (c == '#' && !quoted) { comment = i; break; } } if (comment != std::string::npos) line = line.substr(0, comment); auto last = line.find_last_not_of(\" \\t\\r\"); if (last == std::string::npos) continue; line.resize(last + 1); if (quoted) return false;");
+        self.push_line("        if (line.front() == '[') { if (line.size() < 3 || line.back() != ']') return false; continue; } auto eq = line.find('='); if (eq == std::string::npos || eq == 0 || eq + 1 >= line.size()) return false; std::string key = line.substr(0, eq), value = line.substr(eq + 1); if (key.find_first_not_of(\"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_- .\\\"\") != std::string::npos) return false; auto vf = value.find_first_not_of(\" \\t\"); if (vf == std::string::npos) return false; value = value.substr(vf); if (value == \"true\" || value == \"false\") continue; if (value.front() == 34) { if (value.size() < 2 || value.back() != 34) return false; continue; } if (value.front() == '[') { if (value.back() != ']') return false; continue; } try { std::size_t n = 0; (void)std::stod(value, &n); if (n != value.size()) return false; } catch (...) { return false; } }");
+        self.push_line("    return true;");
+        self.push_line("}");
+        self.push_line("static std::string __builtin_toml_raw(const std::string& text, const std::string& wanted) { std::size_t start = 0; while (start < text.size()) { auto end = text.find('\\n', start); if (end == std::string::npos) end = text.size(); std::string line = text.substr(start, end - start); start = end + 1; auto first = line.find_first_not_of(\" \\t\\r\"); if (first == std::string::npos) continue; line = line.substr(first); if (line.front() == '[') return {}; auto hash = line.find('#'); if (hash != std::string::npos) line = line.substr(0, hash); auto eq = line.find('='); if (eq == std::string::npos) continue; auto trim = [](std::string s) { auto a = s.find_first_not_of(\" \\t\\r\"); auto b = s.find_last_not_of(\" \\t\\r\"); return a == std::string::npos ? std::string() : s.substr(a, b - a + 1); }; if (trim(line.substr(0, eq)) == wanted) return trim(line.substr(eq + 1)); } return {}; }");
+        self.push_line("static bool __builtin_toml_has_key(const std::string& text, const std::string& key) { return !__builtin_toml_raw(text, key).empty(); }");
+        self.push_line("static long long __builtin_toml_get_int(const std::string& text, const std::string& key, long long fallback) { auto raw = __builtin_toml_raw(text, key); try { std::size_t n = 0; auto v = std::stoll(raw, &n); return !raw.empty() && n == raw.size() ? v : fallback; } catch (...) { return fallback; } }");
+        self.push_line("static bool __builtin_toml_get_bool(const std::string& text, const std::string& key, bool fallback) { auto raw = __builtin_toml_raw(text, key); return raw == \"true\" ? true : raw == \"false\" ? false : fallback; }");
+        self.push_line("static std::string __builtin_toml_get_string(const std::string& text, const std::string& key, const std::string& fallback) { auto raw = __builtin_toml_raw(text, key); if (raw.size() < 2 || raw.front() != 34 || raw.back() != 34) return fallback; return raw.substr(1, raw.size() - 2); }");
+        self.push_line("");
+    }
+
+    fn generate_http_runtime(&mut self) {
+        self.output.push_str(r#"static bool __builtin_http_is_url(const std::string& url) {
+    return url.rfind("https://", 0) == 0 || url.rfind("http://", 0) == 0;
+}
+static std::string __alaco_http_request(const std::string& url, const std::string* body) {
+#if defined(_WIN32)
+    std::wstring wide(url.begin(), url.end());
+    URL_COMPONENTS parts{}; parts.dwStructSize = sizeof(parts);
+    wchar_t host[256]{}, path[4096]{};
+    parts.lpszHostName = host; parts.dwHostNameLength = 256;
+    parts.lpszUrlPath = path; parts.dwUrlPathLength = 4096;
+    if (!__builtin_http_is_url(url) || !WinHttpCrackUrl(wide.c_str(), 0, 0, &parts)) return {};
+    HINTERNET session = WinHttpOpen(L"Alaco/0.1", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    if (!session) return {};
+    WinHttpSetTimeouts(session, 20000, 20000, 20000, 20000);
+    HINTERNET connection = WinHttpConnect(session, host, parts.nPort, 0);
+    if (!connection) { WinHttpCloseHandle(session); return {}; }
+    bool secure = parts.nScheme == INTERNET_SCHEME_HTTPS;
+    HINTERNET request = WinHttpOpenRequest(connection, body ? L"POST" : L"GET", path, nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, secure ? WINHTTP_FLAG_SECURE : 0);
+    std::string result;
+    if (request) {
+        const wchar_t* headers = body ? L"Content-Type: application/json\r\n" : WINHTTP_NO_ADDITIONAL_HEADERS;
+        BOOL sent = WinHttpSendRequest(request, headers, body ? (DWORD)-1L : 0, body ? (LPVOID)body->data() : WINHTTP_NO_REQUEST_DATA, body ? (DWORD)body->size() : 0, body ? (DWORD)body->size() : 0, 0);
+        DWORD status = 0, status_size = sizeof(status);
+        if (sent && WinHttpReceiveResponse(request, nullptr) && WinHttpQueryHeaders(request, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX, &status, &status_size, WINHTTP_NO_HEADER_INDEX) && status >= 200 && status < 300) {
+            DWORD available = 0;
+            while (WinHttpQueryDataAvailable(request, &available) && available) {
+                std::string chunk(available, '\0'); DWORD read = 0;
+                if (!WinHttpReadData(request, chunk.data(), available, &read) || !read) break;
+                chunk.resize(read); result += chunk;
+            }
+        }
+        WinHttpCloseHandle(request);
+    }
+    WinHttpCloseHandle(connection); WinHttpCloseHandle(session); return result;
+#elif defined(__APPLE__)
+    if (!__builtin_http_is_url(url)) return {};
+    CFStringRef url_string = CFStringCreateWithCString(kCFAllocatorDefault, url.c_str(), kCFStringEncodingUTF8);
+    if (!url_string) return {};
+    CFURLRef cf_url = CFURLCreateWithString(kCFAllocatorDefault, url_string, nullptr);
+    CFRelease(url_string);
+    if (!cf_url) return {};
+    CFStringRef method = CFStringCreateWithCString(kCFAllocatorDefault, body ? "POST" : "GET", kCFStringEncodingASCII);
+    CFHTTPMessageRef message = CFHTTPMessageCreateRequest(kCFAllocatorDefault, method, cf_url, kCFHTTPVersion1_1);
+    CFRelease(method);
+    if (!message) { CFRelease(cf_url); return {}; }
+    if (body) {
+        CFStringRef header = CFStringCreateWithCString(kCFAllocatorDefault, "Content-Type", kCFStringEncodingASCII);
+        CFStringRef value = CFStringCreateWithCString(kCFAllocatorDefault, "application/json", kCFStringEncodingASCII);
+        CFHTTPMessageSetHeaderFieldValue(message, header, value);
+        CFRelease(header); CFRelease(value);
+        CFDataRef data = CFDataCreate(kCFAllocatorDefault, reinterpret_cast<const UInt8*>(body->data()), static_cast<CFIndex>(body->size()));
+        CFHTTPMessageSetBody(message, data); CFRelease(data);
+    }
+    CFReadStreamRef stream = CFReadStreamCreateForHTTPRequest(kCFAllocatorDefault, message);
+    CFRelease(message);
+    if (!stream) { CFRelease(cf_url); return {}; }
+    CFStringRef scheme = CFURLCopyScheme(cf_url);
+    bool secure = scheme && CFEqual(scheme, CFSTR("https"));
+    if (scheme) CFRelease(scheme);
+    if (secure) {
+        const void* keys[] = { kCFStreamSSLLevel };
+        const void* values[] = { kCFStreamSocketSecurityLevelNegotiatedSSL };
+        CFDictionaryRef settings = CFDictionaryCreate(kCFAllocatorDefault, keys, values, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+        CFReadStreamSetProperty(stream, kCFStreamPropertySSLSettings, settings);
+        CFRelease(settings);
+    }
+    std::string result;
+    if (CFReadStreamOpen(stream)) {
+        UInt8 buffer[4096]; CFIndex count;
+        while ((count = CFReadStreamRead(stream, buffer, sizeof(buffer))) > 0) result.append(reinterpret_cast<const char*>(buffer), static_cast<std::size_t>(count));
+        CFTypeRef response = CFReadStreamCopyProperty(stream, kCFStreamPropertyHTTPResponseHeader);
+        if (response && CFGetTypeID(response) == CFHTTPMessageGetTypeID()) {
+            int status = static_cast<int>(CFHTTPMessageGetResponseStatusCode((CFHTTPMessageRef)response));
+            if (status < 200 || status >= 300) result.clear();
+        } else result.clear();
+        if (response) CFRelease(response);
+        CFReadStreamClose(stream);
+    }
+    CFRelease(stream); CFRelease(cf_url); return result;
+#else
+    if (!__builtin_http_is_url(url)) return {};
+    const bool secure = url.rfind("https://", 0) == 0;
+    std::string rest = url.substr(secure ? 8 : 7);
+    auto slash = rest.find_first_of("/?#");
+    std::string authority = rest.substr(0, slash);
+    std::string path = slash == std::string::npos ? "/" : rest.substr(slash);
+    if (path.front() == '?' || path.front() == '#') path = "/" + path;
+    auto colon = authority.rfind(':');
+    std::string host = colon == std::string::npos ? authority : authority.substr(0, colon);
+    std::string port = colon == std::string::npos ? (secure ? "443" : "80") : authority.substr(colon + 1);
+    if (host.empty() || host.find('@') != std::string::npos) return {};
+    addrinfo hints{}; hints.ai_socktype = SOCK_STREAM; hints.ai_family = AF_UNSPEC;
+    addrinfo* addresses = nullptr;
+    if (getaddrinfo(host.c_str(), port.c_str(), &hints, &addresses) != 0) return {};
+    int fd = -1;
+    for (auto* a = addresses; a; a = a->ai_next) {
+        fd = static_cast<int>(socket(a->ai_family, a->ai_socktype, a->ai_protocol));
+        if (fd >= 0 && connect(fd, a->ai_addr, a->ai_addrlen) == 0) break;
+        if (fd >= 0) close(fd);
+        fd = -1;
+    }
+    freeaddrinfo(addresses);
+    if (fd < 0) return {};
+    timeval timeout{}; timeout.tv_sec = 20;
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+    SSL_CTX* context = nullptr; SSL* tls = nullptr;
+    if (secure) {
+        context = SSL_CTX_new(TLS_client_method());
+        if (!context) { close(fd); return {}; }
+        SSL_CTX_set_verify(context, SSL_VERIFY_PEER, nullptr);
+        if (SSL_CTX_set_default_verify_paths(context) != 1) { SSL_CTX_free(context); close(fd); return {}; }
+        tls = SSL_new(context);
+        if (!tls || SSL_set_tlsext_host_name(tls, host.c_str()) != 1 || SSL_set1_host(tls, host.c_str()) != 1 || SSL_set_fd(tls, fd) != 1 || SSL_connect(tls) != 1) {
+            if (tls) SSL_free(tls); SSL_CTX_free(context); close(fd); return {};
+        }
+    }
+    auto write_all = [&](const char* data, std::size_t size) {
+        std::size_t sent = 0;
+        while (sent < size) {
+            std::size_t remaining = size - sent;
+            int n = secure ? SSL_write(tls, data + sent, static_cast<int>(remaining > 1048576 ? 1048576 : remaining)) : static_cast<int>(send(fd, data + sent, remaining, 0));
+            if (n <= 0) return false;
+            sent += static_cast<std::size_t>(n);
+        }
+        return true;
+    };
+    std::string request = body ? "POST " : "GET ";
+    request += path + " HTTP/1.1\r\nHost: " + host + "\r\nConnection: close\r\n";
+    if (body) request += "Content-Type: application/json\r\nContent-Length: " + std::to_string(body->size()) + "\r\n";
+    request += "\r\n"; if (body) request += *body;
+    if (!write_all(request.data(), request.size())) { if (tls) SSL_free(tls); if (context) SSL_CTX_free(context); close(fd); return {}; }
+    std::string response; char buffer[4096];
+    for (;;) {
+        int n = secure ? SSL_read(tls, buffer, sizeof(buffer)) : static_cast<int>(recv(fd, buffer, sizeof(buffer), 0));
+        if (n <= 0) break;
+        response.append(buffer, static_cast<std::size_t>(n));
+    }
+    if (tls) { SSL_shutdown(tls); SSL_free(tls); }
+    if (context) SSL_CTX_free(context);
+    close(fd);
+    auto split = response.find("\r\n\r\n");
+    auto status = response.find("HTTP/");
+    auto status_end = response.find("\r\n", status);
+    bool ok = status != std::string::npos && status_end != std::string::npos && response.size() > status + 9 && response[status + 9] == '2';
+    if (split == std::string::npos || !ok) return {};
+    return response.substr(split + 4);
+#endif
+}
+static std::string __builtin_http_get(const std::string& url) { return __alaco_http_request(url, nullptr); }
+static std::string __builtin_http_post(const std::string& url, const std::string& body) { return __alaco_http_request(url, &body); }
+
+"#);
+    }
+
+    fn generate_time_runtime(&mut self) {
+        self.push_line("static long long __builtin_time_unix_seconds() { return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count(); }");
+        self.push_line("static void __builtin_time_sleep_ms(long long ms) { if (ms > 0) std::this_thread::sleep_for(std::chrono::milliseconds(ms)); }");
         self.push_line("");
     }
 
@@ -841,6 +1128,28 @@ impl CppCodegen {
                 }
             }
 
+            Stmt::Destructure {
+                bindings,
+                value,
+                span,
+                ..
+            } => {
+                let temporary = format!("_alaco_destructure_{}", span.start);
+                self.push_line(&format!(
+                    "const auto {} = {};",
+                    temporary,
+                    self.expression(value)
+                ));
+                for (field, binding) in bindings {
+                    self.push_line(&format!(
+                        "auto {} = {}.{};",
+                        self.cpp_identifier(binding),
+                        temporary,
+                        self.cpp_identifier(field)
+                    ));
+                }
+            }
+
             Stmt::Return(value, ..) => {
                 if let Some(value) = value {
                     self.push_line(&format!("return {};", self.expression(value)));
@@ -1088,6 +1397,56 @@ impl CppCodegen {
                 format!("({} {} {})", left, self.binary_operator(*operator), right)
             }
 
+            Expr::Pipe { input, target, .. } => {
+                let input = self.expression(input);
+                match target.as_ref() {
+                    Expr::Call {
+                        callee, arguments, ..
+                    } => {
+                        let mut values = vec![input];
+                        values.extend(arguments.iter().map(|argument| self.expression(argument)));
+                        let arguments = values.join(", ");
+                        if let Expr::Member { object, member, .. } = callee.as_ref() {
+                            if let Expr::Identifier(alias, _) = object.as_ref() {
+                                if self.module_aliases.contains(alias) {
+                                    if alias == "io" {
+                                        return format!(
+                                            "{}({})",
+                                            self.cpp_identifier(member),
+                                            arguments
+                                        );
+                                    }
+                                    return format!(
+                                        "{}::{}({})",
+                                        self.cpp_identifier(alias),
+                                        self.cpp_identifier(member),
+                                        arguments
+                                    );
+                                }
+                            }
+                        }
+                        format!("{}({})", self.expression(callee), arguments)
+                    }
+                    Expr::Member { object, member, .. } => {
+                        if let Expr::Identifier(alias, _) = object.as_ref() {
+                            if self.module_aliases.contains(alias) {
+                                if alias == "io" {
+                                    return format!("{}({})", self.cpp_identifier(member), input);
+                                }
+                                return format!(
+                                    "{}::{}({})",
+                                    self.cpp_identifier(alias),
+                                    self.cpp_identifier(member),
+                                    input
+                                );
+                            }
+                        }
+                        format!("{}({})", self.expression(target), input)
+                    }
+                    _ => format!("{}({})", self.expression(target), input),
+                }
+            }
+
             Expr::Unary {
                 operator, operand, ..
             } => {
@@ -1096,6 +1455,9 @@ impl CppCodegen {
                 match operator {
                     UnaryOp::Negate => {
                         format!("(-{})", operand)
+                    }
+                    UnaryOp::Not => {
+                        format!("(!{})", operand)
                     }
                 }
             }

@@ -59,7 +59,30 @@ if score >= 10 {
 }
 ```
 
-The implemented binary operators include arithmetic (`+`, `-`, `*`, `/`, `%`), comparisons (`==`, `!=`, `<`, `<=`, `>`, `>=`), logical `and` / `or`, and compound assignments (`+=`, `-=`, `*=`, `/=`). Logical operators require `Bool` operands; `and` binds more tightly than `or`. Parentheses can group expressions.
+The implemented binary operators include arithmetic (`+`, `-`, `*`, `/`, `%`), comparisons (`==`, `!=`, `<`, `<=`, `>`, `>=`), logical `and` / `or`, and compound assignments (`+=`, `-=`, `*=`, `/=`). Logical operators require `Bool` operands; `and` binds more tightly than `or`. The unary `!` operator negates a boolean, and unary `-` negates a number. Parentheses can group expressions.
+
+Equality is defined for `Int`, `Float`, `Bool`, and `String`; comparing structs, shell values, or `Void` is rejected. `%` currently requires two `Int` operands.
+
+### Pipe expressions
+
+The forward pipe operator `|>` passes its left-hand value as the first argument to a function on the right. Any arguments already written in a call follow the piped value. Pipes associate from left to right:
+
+```alaco
+fn double(value: Int) -> Int {
+    return value * 2;
+}
+
+fn add(left: Int, right: Int) -> Int {
+    return left + right;
+}
+
+fn main() {
+    let result = 4 |> double |> add(3);
+    println(result); // 11
+}
+```
+
+This is equivalent to `add(double(4), 3)`. Pipe inputs are checked against the target function's parameter types before C++ is generated.
 
 ## Loops and match
 
@@ -99,6 +122,14 @@ fn main() {
     println(user.name);
     println(user);
 }
+```
+
+You can destructure selected fields into local variables. By default, each binding keeps the field's name; use `field: binding` to rename it. Fields you do not list are ignored.
+
+```alaco
+let Point { x, y: vertical } = point;
+println(x);
+println(vertical);
 ```
 
 ## Imports
