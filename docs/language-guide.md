@@ -132,4 +132,4 @@ Shell commands are platform-dependent. Only run shell commands you trust.
 
 ## Compiler checks and diagnostics
 
-The analyzer checks function argument types and catches common mistakes such as misspelled functions, module functions, and struct fields. Use `alaco check file.aco` to parse and analyze without building or running the program.
+The analyzer checks function argument types and catches common mistakes such as misspelled functions, module functions, and struct fields. Diagnostics use stable `alaco::analysis::*` codes; source labels target the expression or declaration responsible for the error. Unknown types are highlighted at the type name, type mismatches at the relevant expression, and duplicate declarations at the repeated declaration. Some whole-program errors, such as a missing `main`, have no source span to highlight. Use `alaco check file.aco` to parse and analyze without building or running the program.

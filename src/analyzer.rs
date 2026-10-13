@@ -71,7 +71,10 @@ impl<'a> Analyzer<'a> {
         for item in &program.items {
             if let Item::Struct(structure) = item {
                 if !structs.insert(structure.name.as_str()) {
-                    return Err(self.error(format!("duplicate struct '{}'", structure.name), None));
+                    return Err(AlacoError::DuplicateStruct {
+                        name: structure.name.clone(),
+                        span: structure.span.into(),
+                    });
                 }
             }
         }
@@ -89,47 +92,52 @@ impl<'a> Analyzer<'a> {
                                 "function name '{}' is reserved for compiler internals",
                                 function.name
                             ),
-                            None,
+                            Some(function.span),
                         ));
                     }
 
+                    if function.name == "main" && main_count > 0 {
+                        return Err(AlacoError::MultipleMain {
+                            span: function.span.into(),
+                        });
+                    }
+
                     if !functions.insert(function.name.as_str()) {
-                        return Err(
-                            self.error(format!("duplicate function '{}'", function.name), None)
-                        );
+                        return Err(self.error(
+                            format!("duplicate function '{}'", function.name),
+                            Some(function.span),
+                        ));
                     }
 
                     if function.name == "main" {
                         main_count += 1;
 
                         if !function.params.is_empty() {
-                            return Err(self.error("main function cannot have parameters", None));
+                            return Err(AlacoError::MainHasParameters {
+                                span: function.span.into(),
+                            });
                         }
 
                         if function.return_type.is_some() {
-                            return Err(self
-                                .error("main function cannot have an explicit return type", None));
+                            return Err(AlacoError::MainHasReturnType {
+                                span: function.span.into(),
+                            });
                         }
                     }
 
                     self.check_parameters(function, &structs)?;
                 }
 
-                Item::Statement(_) => {
-                    return Err(self.error(
-                        "top-level statements are not allowed; expected a function",
-                        None,
-                    ));
+                Item::Statement(statement) => {
+                    return Err(AlacoError::TopLevelStatement {
+                        span: statement.span().into(),
+                    });
                 }
             }
         }
 
         if main_count == 0 {
-            return Err(self.error("program must contain a 'main' function", None));
-        }
-
-        if main_count > 1 {
-            return Err(self.error("program can only contain one 'main' function", None));
+            return Err(AlacoError::MissingMain);
         }
 
         Ok(())
@@ -148,16 +156,14 @@ impl<'a> Analyzer<'a> {
 
             for field in &structure.fields {
                 if !fields.insert(field.name.as_str()) {
-                    return Err(self.error(
-                        format!(
-                            "duplicate field '{}' in struct '{}'",
-                            field.name, structure.name
-                        ),
-                        None,
-                    ));
+                    return Err(AlacoError::DuplicateField {
+                        field: field.name.clone(),
+                        struct_name: structure.name.clone(),
+                        span: field.span.into(),
+                    });
                 }
 
-                self.validate_value_type(&field.ty, &struct_names)?;
+                self.validate_value_type_at(&field.ty, &struct_names, field.type_span)?;
             }
         }
 
@@ -173,66 +179,66 @@ impl<'a> Analyzer<'a> {
 
         for parameter in &function.params {
             if !names.insert(parameter.name.as_str()) {
-                return Err(self.error(
-                    format!(
-                        "duplicate parameter '{}' in function '{}'",
-                        parameter.name, function.name
-                    ),
-                    None,
-                ));
+                return Err(AlacoError::DuplicateParameter {
+                    name: parameter.name.clone(),
+                    function: function.name.clone(),
+                    span: parameter.span.into(),
+                });
             }
 
-            self.validate_value_type(&parameter.ty, struct_names)?;
+            self.validate_value_type_at(&parameter.ty, struct_names, parameter.type_span)?;
         }
 
         if let Some(return_type) = &function.return_type {
-            self.validate_return_type(return_type, struct_names)?;
+            self.validate_return_type_at(
+                return_type,
+                struct_names,
+                function.return_type_span.unwrap_or(function.span),
+            )?;
         }
 
         Ok(())
     }
 
-    fn validate_type(&self, ty: &Type, struct_names: &HashSet<&str>) -> Result<(), AlacoError> {
+    fn validate_type_at(
+        &self,
+        ty: &Type,
+        struct_names: &HashSet<&str>,
+        span: Span,
+    ) -> Result<(), AlacoError> {
         match ty {
-            Type::Int
-            | Type::Float
-            | Type::Bool
-            | Type::String
-            | Type::Void
-            | Type::Shell
-            | Type::ShellResult => Ok(()),
-
-            Type::Named(name) => {
-                if struct_names.contains(name.as_str()) {
-                    Ok(())
-                } else {
-                    Err(self.error(format!("unknown type '{}'", name), None))
-                }
+            Type::Named(name) if !struct_names.contains(name.as_str()) => {
+                Err(AlacoError::UnknownType {
+                    name: name.clone(),
+                    span: span.into(),
+                })
             }
+            _ => Ok(()),
         }
     }
 
-    fn validate_return_type(
+    fn validate_return_type_at(
         &self,
         ty: &Type,
         struct_names: &HashSet<&str>,
+        span: Span,
     ) -> Result<(), AlacoError> {
-        self.validate_type(ty, struct_names)
+        self.validate_type_at(ty, struct_names, span)
     }
 
-    fn validate_value_type(
+    fn validate_value_type_at(
         &self,
         ty: &Type,
         struct_names: &HashSet<&str>,
+        span: Span,
     ) -> Result<(), AlacoError> {
         if matches!(ty, Type::Void) {
             return Err(self.error(
                 "Void cannot be used as a variable, parameter, or struct field type",
-                None,
+                Some(span),
             ));
         }
-
-        self.validate_type(ty, struct_names)
+        self.validate_type_at(ty, struct_names, span)
     }
 
     fn struct_names<'b>(&self, program: &'b Program) -> HashSet<&'b str> {
@@ -419,7 +425,7 @@ impl<'a> Analyzer<'a> {
                     function.name,
                     self.type_name(&expected_return)
                 ),
-                None,
+                Some(function.span),
             ));
         }
 
@@ -529,19 +535,20 @@ impl<'a> Analyzer<'a> {
                 mutable,
                 ty,
                 value,
-                span: _,
+                span,
             } => {
                 let value_type = self.type_of_expression(value, scopes, program, functions)?;
 
                 if let Some(expected_type) = ty {
                     let struct_names = self.struct_names(program);
 
-                    self.validate_value_type(expected_type, &struct_names)?;
+                    self.validate_value_type_at(expected_type, &struct_names, *span)?;
 
-                    self.ensure_assignable(
+                    self.ensure_assignable_at(
                         expected_type,
                         &value_type,
                         &format!("variable '{}'", name),
+                        value.span(),
                     )?;
                 }
 
@@ -550,10 +557,10 @@ impl<'a> Analyzer<'a> {
                 let scope = scopes.last_mut().expect("analyzer scope stack is empty");
 
                 if scope.contains_key(name) {
-                    return Err(self.error(
-                        format!("variable '{}' is already declared in this scope", name),
-                        None,
-                    ));
+                    return Err(AlacoError::DuplicateVariable {
+                        name: name.clone(),
+                        span: (*span).into(),
+                    });
                 }
 
                 scope.insert(
@@ -565,19 +572,26 @@ impl<'a> Analyzer<'a> {
                 );
             }
 
-            Stmt::Return(value, _) => {
+            Stmt::Return(value, span) => {
                 let actual_type = match value {
                     Some(value) => self.type_of_expression(value, scopes, program, functions)?,
 
                     None => Type::Void,
                 };
 
-                self.ensure_assignable(expected_return, &actual_type, "return value")?;
+                self.ensure_assignable_at(
+                    expected_return,
+                    &actual_type,
+                    "return value",
+                    value.as_ref().map(Expr::span).unwrap_or(*span),
+                )?;
             }
 
-            Stmt::Stop(value, _) => {
+            Stmt::Stop(value, span) => {
                 if loop_depth == 0 {
-                    return Err(self.error("'stop' can only be used inside a loop", None));
+                    return Err(AlacoError::StopOutsideLoop {
+                        span: (*span).into(),
+                    });
                 }
 
                 if let Some(value) = value {
@@ -585,9 +599,11 @@ impl<'a> Analyzer<'a> {
                 }
             }
 
-            Stmt::Skip(_) => {
+            Stmt::Skip(span) => {
                 if loop_depth == 0 {
-                    return Err(self.error("'skip' can only be used inside a loop", None));
+                    return Err(AlacoError::SkipOutsideLoop {
+                        span: (*span).into(),
+                    });
                 }
             }
 
@@ -600,7 +616,12 @@ impl<'a> Analyzer<'a> {
                 let condition_type =
                     self.type_of_expression(condition, scopes, program, functions)?;
 
-                self.require_type(&Type::Bool, &condition_type, "if condition")?;
+                self.require_type_at(
+                    &Type::Bool,
+                    &condition_type,
+                    "if condition",
+                    condition.span(),
+                )?;
 
                 self.analyze_block(
                     then_block,
@@ -627,11 +648,12 @@ impl<'a> Analyzer<'a> {
                 kind,
                 binding,
                 body,
-                span: _,
+                span,
             } => {
                 self.analyze_loop(
                     kind,
                     binding.as_deref(),
+                    *span,
                     body,
                     scopes,
                     loop_depth,
@@ -654,7 +676,7 @@ impl<'a> Analyzer<'a> {
                     self.type_of_expression(expression, scopes, program, functions)?;
 
                 for arm in arms {
-                    self.check_match_pattern(&arm.pattern, &expression_type)?;
+                    self.check_match_pattern(&arm.pattern, &expression_type, expression.span())?;
 
                     self.analyze_block(
                         &arm.body,
@@ -679,6 +701,7 @@ impl<'a> Analyzer<'a> {
         &self,
         kind: &LoopKind,
         binding: Option<&str>,
+        span: Span,
         body: &Block,
         scopes: &mut Vec<HashMap<String, Variable>>,
         loop_depth: usize,
@@ -692,13 +715,13 @@ impl<'a> Analyzer<'a> {
             LoopKind::Repeat(expression) => {
                 let ty = self.type_of_expression(expression, scopes, program, functions)?;
 
-                self.require_type(&Type::Int, &ty, "repeat count")?;
+                self.require_type_at(&Type::Int, &ty, "repeat count", expression.span())?;
             }
 
             LoopKind::While(condition) => {
                 let ty = self.type_of_expression(condition, scopes, program, functions)?;
 
-                self.require_type(&Type::Bool, &ty, "while condition")?;
+                self.require_type_at(&Type::Bool, &ty, "while condition", condition.span())?;
             }
 
             LoopKind::For {
@@ -713,7 +736,7 @@ impl<'a> Analyzer<'a> {
                         "'for' loops cannot iterate over '{}' yet",
                         self.type_name(&iterable_type)
                     ),
-                    None,
+                    Some(span),
                 ));
             }
         }
@@ -787,23 +810,24 @@ impl<'a> Analyzer<'a> {
                 if functions.contains_key(name) {
                     return Err(self.error(
                         format!("function '{}' cannot be used as a value", name),
-                        None,
+                        Some(*span),
                     ));
                 }
 
-                Err(self.error(format!("use of undefined variable '{}'", name), Some(*span)))
+                Err(AlacoError::UndefinedVariable {
+                    name: name.clone(),
+                    span: (*span).into(),
+                })
             }
 
-            Expr::StructLiteral {
-                name,
-                fields,
-                span: _,
-            } => self.type_of_struct_literal(name, fields, program, scopes, functions),
+            Expr::StructLiteral { name, fields, span } => {
+                self.type_of_struct_literal(name, fields, *span, program, scopes, functions)
+            }
 
             Expr::Unary {
                 operator,
                 operand,
-                span: _,
+                span,
             } => {
                 let operand_type = self.type_of_expression(operand, scopes, program, functions)?;
 
@@ -812,7 +836,7 @@ impl<'a> Analyzer<'a> {
                         if !self.is_numeric(&operand_type) {
                             return Err(self.error(
                                 format!("cannot negate {}", self.type_name(&operand_type)),
-                                None,
+                                Some(*span),
                             ));
                         }
 
@@ -825,14 +849,22 @@ impl<'a> Analyzer<'a> {
                 left,
                 operator,
                 right,
-                span: _,
-            } => self.type_of_binary(left, *operator, right, scopes, program, functions),
+                span,
+            } => self.type_of_binary(left, *operator, right, *span, scopes, program, functions),
 
             Expr::Call {
                 callee,
                 arguments,
-                span: _,
-            } => self.type_of_call(callee, arguments, scopes, program, functions),
+                span,
+            } => self
+                .type_of_call(callee, arguments, scopes, program, functions)
+                .map_err(|error| match error {
+                    AlacoError::Analysis {
+                        message,
+                        span: None,
+                    } => self.error(message, Some(*span)),
+                    other => other,
+                }),
 
             Expr::Member {
                 object,
@@ -847,14 +879,14 @@ impl<'a> Analyzer<'a> {
             Expr::Intrinsic {
                 name,
                 arguments,
-                span: _,
+                span,
             } => {
-                let function = functions
-                    .get(name)
-                    .ok_or_else(|| self.error(format!("unknown intrinsic '{}'", name), None))?;
+                let function = functions.get(name).ok_or_else(|| {
+                    self.error(format!("unknown intrinsic '{}'", name), Some(*span))
+                })?;
 
                 if function.intrinsic.is_none() {
-                    return Err(self.error(format!("'{}' is not an intrinsic", name), None));
+                    return Err(self.error(format!("'{}' is not an intrinsic", name), Some(*span)));
                 }
 
                 if arguments.len() != function.params.len() {
@@ -865,17 +897,18 @@ impl<'a> Analyzer<'a> {
                             function.params.len(),
                             arguments.len()
                         ),
-                        None,
+                        Some(*span),
                     ));
                 }
 
                 for (index, argument) in arguments.iter().enumerate() {
                     let actual = self.type_of_expression(argument, scopes, program, functions)?;
 
-                    self.ensure_assignable(
+                    self.ensure_assignable_at(
                         &function.params[index],
                         &actual,
                         &format!("argument {} of intrinsic '{}'", index + 1, name),
+                        argument.span(),
                     )?;
                 }
 
@@ -892,13 +925,14 @@ impl<'a> Analyzer<'a> {
         &self,
         name: &str,
         fields: &[(String, Expr)],
+        span: Span,
         program: &Program,
         scopes: &mut Vec<HashMap<String, Variable>>,
         functions: &HashMap<String, FunctionInfo>,
     ) -> Result<Type, AlacoError> {
         let structure = self
             .find_struct(program, name)
-            .ok_or_else(|| self.error(format!("unknown struct '{}'", name), None))?;
+            .ok_or_else(|| self.error(format!("unknown struct '{}'", name), Some(span)))?;
 
         let mut supplied = HashSet::new();
 
@@ -906,7 +940,7 @@ impl<'a> Analyzer<'a> {
             if !supplied.insert(field_name.as_str()) {
                 return Err(self.error(
                     format!("field '{}' is specified more than once", field_name),
-                    None,
+                    Some(value.span()),
                 ));
             }
 
@@ -926,15 +960,16 @@ impl<'a> Analyzer<'a> {
                         ),
                         None => format!("struct '{}' has no field '{}'", name, field_name),
                     };
-                    self.error(message, None)
+                    self.error(message, Some(value.span()))
                 })?;
 
             let actual_type = self.type_of_expression(value, scopes, program, functions)?;
 
-            self.ensure_assignable(
+            self.ensure_assignable_at(
                 &field.ty,
                 &actual_type,
                 &format!("field '{}.{}'", name, field_name),
+                value.span(),
             )?;
         }
 
@@ -945,7 +980,7 @@ impl<'a> Analyzer<'a> {
                         "missing field '{}' in struct literal '{}'",
                         field.name, name
                     ),
-                    None,
+                    Some(span),
                 ));
             }
         }
@@ -964,7 +999,7 @@ impl<'a> Analyzer<'a> {
             Type::Named(name) => {
                 let structure = self
                     .find_struct(program, name)
-                    .ok_or_else(|| self.error(format!("unknown type '{}'", name), None))?;
+                    .ok_or_else(|| self.error(format!("unknown type '{}'", name), Some(span)))?;
 
                 let field = structure
                     .fields
@@ -992,7 +1027,10 @@ impl<'a> Analyzer<'a> {
                 if member == "get" {
                     Ok(Type::ShellResult)
                 } else {
-                    Err(self.error(format!("type 'Shell' has no member '{}'", member), None))
+                    Err(self.error(
+                        format!("type 'Shell' has no member '{}'", member),
+                        Some(span),
+                    ))
                 }
             }
 
@@ -1002,13 +1040,13 @@ impl<'a> Analyzer<'a> {
                 "success" => Ok(Type::Bool),
                 _ => Err(self.error(
                     format!("type 'ShellResult' has no member '{}'", member),
-                    None,
+                    Some(span),
                 )),
             },
 
             _ => Err(self.error(
                 format!("type '{}' has no members", self.type_name(object_type)),
-                None,
+                Some(span),
             )),
         }
     }
@@ -1209,6 +1247,7 @@ impl<'a> Analyzer<'a> {
         left: &Expr,
         operator: BinaryOp,
         right: &Expr,
+        span: Span,
         scopes: &mut Vec<HashMap<String, Variable>>,
         program: &Program,
         functions: &HashMap<String, FunctionInfo>,
@@ -1223,7 +1262,7 @@ impl<'a> Analyzer<'a> {
             | BinaryOp::SubtractAssign
             | BinaryOp::MultiplyAssign
             | BinaryOp::DivideAssign => {
-                self.check_assignment_target(left, scopes)?;
+                self.check_assignment_target(left, scopes, left.span())?;
 
                 if matches!(
                     operator,
@@ -1232,10 +1271,10 @@ impl<'a> Analyzer<'a> {
                         | BinaryOp::MultiplyAssign
                         | BinaryOp::DivideAssign
                 ) {
-                    self.require_numeric_pair(&left_type, &right_type)?;
+                    self.require_numeric_pair_at(&left_type, &right_type, span)?;
                 }
 
-                self.ensure_assignable(&left_type, &right_type, "assignment")?;
+                self.ensure_assignable_at(&left_type, &right_type, "assignment", right.span())?;
 
                 Ok(left_type)
             }
@@ -1252,7 +1291,7 @@ impl<'a> Analyzer<'a> {
                     return Ok(Type::String);
                 }
 
-                self.require_numeric_pair(&left_type, &right_type)?;
+                self.require_numeric_pair_at(&left_type, &right_type, span)?;
 
                 if left_type == Type::Float || right_type == Type::Float {
                     Ok(Type::Float)
@@ -1262,8 +1301,13 @@ impl<'a> Analyzer<'a> {
             }
 
             BinaryOp::And | BinaryOp::Or => {
-                self.require_type(&Type::Bool, &left_type, "left logical operand")?;
-                self.require_type(&Type::Bool, &right_type, "right logical operand")?;
+                self.require_type_at(&Type::Bool, &left_type, "left logical operand", left.span())?;
+                self.require_type_at(
+                    &Type::Bool,
+                    &right_type,
+                    "right logical operand",
+                    right.span(),
+                )?;
                 Ok(Type::Bool)
             }
 
@@ -1275,7 +1319,7 @@ impl<'a> Analyzer<'a> {
                             self.type_name(&left_type),
                             self.type_name(&right_type)
                         ),
-                        None,
+                        Some(span),
                     ));
                 }
 
@@ -1283,7 +1327,7 @@ impl<'a> Analyzer<'a> {
             }
 
             BinaryOp::Less | BinaryOp::LessEqual | BinaryOp::Greater | BinaryOp::GreaterEqual => {
-                self.require_numeric_pair(&left_type, &right_type)?;
+                self.require_numeric_pair_at(&left_type, &right_type, span)?;
 
                 Ok(Type::Bool)
             }
@@ -1298,30 +1342,31 @@ impl<'a> Analyzer<'a> {
         &self,
         expression: &Expr,
         scopes: &mut Vec<HashMap<String, Variable>>,
+        span: Span,
     ) -> Result<(), AlacoError> {
         match expression {
             Expr::Identifier(name, _) => {
                 let Some(variable) = self.find_variable(scopes, name) else {
-                    return Err(self.error(
-                        format!("cannot assign to undefined variable '{}'", name),
-                        None,
-                    ));
+                    return Err(AlacoError::UndefinedAssignment {
+                        name: name.clone(),
+                        span: span.into(),
+                    });
                 };
 
                 if !variable.mutable {
-                    return Err(self.error(
-                        format!("cannot assign to immutable variable '{}'", name),
-                        None,
-                    ));
+                    return Err(AlacoError::ImmutableAssignment {
+                        name: name.clone(),
+                        span: span.into(),
+                    });
                 }
             }
 
             Expr::Member { object, .. } => {
-                self.check_member_assignment_target(object, scopes)?;
+                self.check_member_assignment_target(object, scopes, span)?;
             }
 
             _ => {
-                return Err(self.error("invalid assignment target", None));
+                return Err(AlacoError::InvalidAssignmentTarget { span: span.into() });
             }
         }
 
@@ -1332,27 +1377,30 @@ impl<'a> Analyzer<'a> {
         &self,
         object: &Expr,
         scopes: &mut Vec<HashMap<String, Variable>>,
+        span: Span,
     ) -> Result<(), AlacoError> {
         match object {
             Expr::Identifier(name, _) => {
                 let Some(variable) = self.find_variable(scopes, name) else {
-                    return Err(self.error(
-                        format!("cannot assign through undefined variable '{}'", name),
-                        None,
-                    ));
+                    return Err(AlacoError::UndefinedAssignment {
+                        name: name.clone(),
+                        span: span.into(),
+                    });
                 };
 
                 if !variable.mutable {
-                    return Err(self.error(
-                        format!("cannot modify field through immutable variable '{}'", name),
-                        None,
-                    ));
+                    return Err(AlacoError::ImmutableAssignment {
+                        name: name.clone(),
+                        span: span.into(),
+                    });
                 }
 
                 Ok(())
             }
 
-            Expr::Member { object, .. } => self.check_member_assignment_target(object, scopes),
+            Expr::Member { object, .. } => {
+                self.check_member_assignment_target(object, scopes, span)
+            }
 
             _ => Ok(()),
         }
@@ -1366,6 +1414,7 @@ impl<'a> Analyzer<'a> {
         &self,
         pattern: &MatchPattern,
         expression_type: &Type,
+        span: Span,
     ) -> Result<(), AlacoError> {
         match pattern {
             MatchPattern::Number(_) => {
@@ -1375,17 +1424,17 @@ impl<'a> Analyzer<'a> {
                             "numeric match pattern cannot match {}",
                             self.type_name(expression_type)
                         ),
-                        None,
+                        Some(span),
                     ));
                 }
             }
 
             MatchPattern::String(_) => {
-                self.require_type(&Type::String, expression_type, "string match pattern")?;
+                self.require_type_at(&Type::String, expression_type, "string match pattern", span)?;
             }
 
             MatchPattern::Bool(_) => {
-                self.require_type(&Type::Bool, expression_type, "boolean match pattern")?;
+                self.require_type_at(&Type::Bool, expression_type, "boolean match pattern", span)?;
             }
 
             MatchPattern::Identifier(_) | MatchPattern::Wildcard => {}
@@ -1397,27 +1446,6 @@ impl<'a> Analyzer<'a> {
     // ------------------------------------------------------------
     // Type utilities
     // ------------------------------------------------------------
-
-    fn ensure_assignable(
-        &self,
-        expected: &Type,
-        actual: &Type,
-        context: &str,
-    ) -> Result<(), AlacoError> {
-        if self.types_assignable(expected, actual) {
-            Ok(())
-        } else {
-            Err(self.error(
-                format!(
-                    "type mismatch for {}: expected {}, found {}",
-                    context,
-                    self.type_name(expected),
-                    self.type_name(actual)
-                ),
-                None,
-            ))
-        }
-    }
 
     fn ensure_assignable_at(
         &self,
@@ -1441,13 +1469,14 @@ impl<'a> Analyzer<'a> {
         }
     }
 
-    fn require_type(
+    fn require_type_at(
         &self,
         expected: &Type,
         actual: &Type,
         context: &str,
+        span: Span,
     ) -> Result<(), AlacoError> {
-        self.ensure_assignable(expected, actual, context)
+        self.ensure_assignable_at(expected, actual, context, span)
     }
 
     fn types_assignable(&self, expected: &Type, actual: &Type) -> bool {
@@ -1469,7 +1498,12 @@ impl<'a> Analyzer<'a> {
             )
     }
 
-    fn require_numeric_pair(&self, left: &Type, right: &Type) -> Result<(), AlacoError> {
+    fn require_numeric_pair_at(
+        &self,
+        left: &Type,
+        right: &Type,
+        span: Span,
+    ) -> Result<(), AlacoError> {
         if self.is_numeric(left) && self.is_numeric(right) {
             Ok(())
         } else {
@@ -1479,7 +1513,7 @@ impl<'a> Analyzer<'a> {
                     self.type_name(left),
                     self.type_name(right)
                 ),
-                None,
+                Some(span),
             ))
         }
     }

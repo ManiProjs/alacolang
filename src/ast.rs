@@ -29,6 +29,7 @@ pub enum Item {
 pub struct Struct {
     pub name: String,
     pub fields: Vec<StructField>,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -42,6 +43,7 @@ pub struct StructField {
     pub name: String,
     pub ty: Type,
     pub span: Span,
+    pub type_span: Span,
 }
 
 #[derive(Debug, Clone)]
@@ -51,12 +53,16 @@ pub struct Function {
     pub return_type: Option<Type>,
     pub body: Block,
     pub intrinsic: Option<String>,
+    pub span: Span,
+    pub return_type_span: Option<Span>,
 }
 
 #[derive(Debug, Clone)]
 pub struct Param {
     pub name: String,
     pub ty: Type,
+    pub span: Span,
+    pub type_span: Span,
 }
 
 #[derive(Debug, Clone)]

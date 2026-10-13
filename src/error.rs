@@ -77,11 +77,14 @@ pub enum AlacoError {
     // Analyzer
     // ─────────────────────────────────────────────────────────────
     #[error("analysis error: {message}")]
-    #[diagnostic(code(alaco::analysis::analysis_error))]
+    #[diagnostic(
+        code(alaco::analysis::analysis_error),
+        help("check the highlighted expression and its expected type")
+    )]
     Analysis {
         message: String,
 
-        #[label("analysis error")]
+        #[label("{message}")]
         span: Option<SourceSpan>,
     },
 
@@ -195,15 +198,24 @@ pub enum AlacoError {
 
     #[error("program can only contain one `main` function")]
     #[diagnostic(code(alaco::analysis::multiple_main))]
-    MultipleMain,
+    MultipleMain {
+        #[label("second `main` defined here")]
+        span: SourceSpan,
+    },
 
     #[error("`main` function cannot have parameters")]
     #[diagnostic(code(alaco::analysis::main_parameters))]
-    MainHasParameters,
+    MainHasParameters {
+        #[label("remove these parameters")]
+        span: SourceSpan,
+    },
 
     #[error("`main` function cannot have an explicit return type")]
     #[diagnostic(code(alaco::analysis::main_return_type))]
-    MainHasReturnType,
+    MainHasReturnType {
+        #[label("remove the return type")]
+        span: SourceSpan,
+    },
 
     #[error("`for` loop cannot have an additional iteration binding")]
     #[diagnostic(code(alaco::analysis::for_binding))]
@@ -362,17 +374,17 @@ impl AlacoError {
                 "Add `fn main() { ... }` to the program.".into(),
             )),
 
-            Self::MultipleMain => Some((
+            Self::MultipleMain { .. } => Some((
                 "An Alaco program can only have one `main` function.".into(),
                 "Remove or rename the additional `main` function.".into(),
             )),
 
-            Self::MainHasParameters => Some((
+            Self::MainHasParameters { .. } => Some((
                 "`main` is the program entry point and cannot have parameters.".into(),
                 "Remove the parameters from `main`.".into(),
             )),
 
-            Self::MainHasReturnType => Some((
+            Self::MainHasReturnType { .. } => Some((
                 "`main` cannot have an explicit return type.".into(),
                 "Remove the return type from `main`.".into(),
             )),

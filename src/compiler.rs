@@ -309,6 +309,69 @@ struct Person {
     }
 
     #[test]
+    fn analyzer_diagnostics_highlight_the_relevant_source_expression() {
+        let cases = [
+            (
+                "fn main() {\n    if 1 { }\n}\n",
+                "condition_type_test.aco",
+                "condition_type_test.aco:2:8",
+                "if condition",
+            ),
+            (
+                "fn main() {\n    let value: String = true;\n}\n",
+                "initializer_type_test.aco",
+                "initializer_type_test.aco:2:25",
+                "type mismatch for variable 'value'",
+            ),
+            (
+                "fn main() {\n    let value = 1;\n    let value = 2;\n}\n",
+                "duplicate_variable_test.aco",
+                "duplicate_variable_test.aco:3:5",
+                "already declared in this scope",
+            ),
+            (
+                "fn greet(name: Unknown) {}\nfn main() {}\n",
+                "unknown_type_test.aco",
+                "unknown_type_test.aco:1:16",
+                "unknown type `Unknown`",
+            ),
+        ];
+
+        for (source, filename, location, message) in cases {
+            let error = Compiler::check(source, filename)
+                .expect_err("invalid source should fail semantic analysis");
+            let diagnostic = format!("{error:?}");
+            assert!(
+                diagnostic.contains(location),
+                "expected {location}: {diagnostic}"
+            );
+            assert!(
+                diagnostic.contains(message),
+                "expected {message}: {diagnostic}"
+            );
+        }
+    }
+
+    #[test]
+    fn common_semantic_errors_have_stable_codes_and_source_labels() {
+        let error = Compiler::check(
+            "fn main() {\n    println(missing);\n}\n",
+            "undefined_variable_code_test.aco",
+        )
+        .expect_err("an undefined variable must fail analysis");
+
+        let diagnostic = format!("{error:?}");
+        assert!(
+            diagnostic.contains("alaco::analysis::undefined_variable"),
+            "missing stable diagnostic code: {diagnostic}"
+        );
+        assert!(
+            diagnostic.contains("undefined_variable_code_test.aco:2:13"),
+            "missing precise source label: {diagnostic}"
+        );
+    }
+
+    #[test]
     fn logical_operators_accept_booleans_and_preserve_precedence() {
         let cpp = Compiler::compile(
             "fn main() { let result = true or false and false; println(result); }",

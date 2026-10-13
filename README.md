@@ -60,7 +60,7 @@ fn main() {
 
 ## Compiler diagnostics
 
-The analyzer checks function argument types before C++ generation and can suggest corrections for misspelled function names, module functions, and struct fields. Diagnostics include source locations when available.
+The analyzer checks types before C++ generation and can suggest corrections for misspelled function names, module functions, and struct fields. Semantic diagnostics use stable `alaco::analysis::*` codes and highlight the relevant expression, declaration, parameter, field, or type name where source information is available. Missing-entry-point errors cannot point to a specific source span.
 
 ## Examples and tests
 

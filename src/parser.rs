@@ -66,6 +66,7 @@ impl Parser {
     }
 
     fn parse_struct(&mut self) -> Result<Struct, AlacoError> {
+        let start = self.peek().span.offset();
         self.consume(&TokenKind::Struct, "expected 'struct'")?;
 
         let name = self.consume_identifier("expected struct name")?;
@@ -90,12 +91,18 @@ impl Parser {
 
             self.consume(&TokenKind::Colon, "expected ':' after field name")?;
 
+            let type_start = self.peek().span.offset();
             let ty = self.parse_type()?;
+            let type_end = self.previous().span.offset() + self.previous().span.len();
 
             fields.push(StructField {
                 name: field_name,
                 ty,
                 span: field_span,
+                type_span: Span {
+                    start: type_start,
+                    end: type_end,
+                },
             });
 
             if self.matches(&TokenKind::Comma) {
@@ -122,10 +129,16 @@ impl Parser {
 
         self.consume(&TokenKind::RightBrace, "expected '}' after struct fields")?;
 
-        Ok(Struct { name, fields })
+        let end = self.previous().span.offset() + self.previous().span.len();
+        Ok(Struct {
+            name,
+            fields,
+            span: Span { start, end },
+        })
     }
 
     fn parse_function(&mut self) -> Result<Function, AlacoError> {
+        let start = self.peek().span.offset();
         self.consume(&TokenKind::Fn, "expected 'fn'")?;
 
         let name = self.consume_identifier("expected function name")?;
@@ -136,15 +149,26 @@ impl Parser {
 
         if !self.check(&TokenKind::RightParen) {
             loop {
+                let param_start = self.peek().span.offset();
                 let param_name = self.consume_identifier("expected parameter name")?;
 
                 self.consume(&TokenKind::Colon, "expected ':' after parameter name")?;
 
+                let type_start = self.peek().span.offset();
                 let ty = self.parse_type()?;
+                let param_end = self.previous().span.offset() + self.previous().span.len();
 
                 params.push(Param {
                     name: param_name,
                     ty,
+                    span: Span {
+                        start: param_start,
+                        end: param_end,
+                    },
+                    type_span: Span {
+                        start: type_start,
+                        end: param_end,
+                    },
                 });
 
                 if !self.matches(&TokenKind::Comma) {
@@ -155,15 +179,25 @@ impl Parser {
 
         self.consume(&TokenKind::RightParen, "expected ')' after parameters")?;
 
-        let return_type = if self.matches(&TokenKind::Arrow) {
-            Some(self.parse_type()?)
+        let (return_type, return_type_span) = if self.matches(&TokenKind::Arrow) {
+            let type_start = self.peek().span.offset();
+            let ty = self.parse_type()?;
+            let type_end = self.previous().span.offset() + self.previous().span.len();
+            (
+                Some(ty),
+                Some(Span {
+                    start: type_start,
+                    end: type_end,
+                }),
+            )
         } else {
-            None
+            (None, None)
         };
 
         self.skip_newlines();
 
         let body = self.parse_block()?;
+        let end = self.previous().span.offset() + self.previous().span.len();
 
         Ok(Function {
             name,
@@ -171,6 +205,8 @@ impl Parser {
             return_type,
             body,
             intrinsic: None,
+            span: Span { start, end },
+            return_type_span,
         })
     }
 
@@ -275,6 +311,7 @@ impl Parser {
     }
 
     fn parse_let_statement(&mut self) -> Result<Stmt, AlacoError> {
+        let start = self.peek().span.offset();
         self.consume(&TokenKind::Let, "expected 'let'")?;
 
         let mutable = self.matches(&TokenKind::Mut);
@@ -290,13 +327,14 @@ impl Parser {
         self.consume(&TokenKind::Equal, "expected '=' after variable declaration")?;
 
         let value = self.parse_expression()?;
+        let end = value.span().end;
 
         Ok(Stmt::Let {
             name,
             mutable,
             ty,
             value,
-            span: self.token_span(self.previous()),
+            span: Span { start, end },
         })
     }
 
