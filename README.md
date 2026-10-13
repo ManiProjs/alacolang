@@ -1,20 +1,49 @@
-# Alaco (You can also call it A)
+# Alaco
 
-A programming language, just for hobby, not a big project
+Alaco (also called **A**) is a hobby programming language implemented in Rust. The compiler parses and analyzes `.aco` source files, generates C++, and invokes a system C++ compiler to build a native executable.
 
-## How it works?
+## Quick start
 
-Unlike other compilers, where turn the tokens to assembly code, this compiler is going to turn the tokens to C++ code
+Install Rust and a C++ compiler supported by your platform, then build the compiler from this repository:
 
-Read the file -> Parse the token -> Convert tokens to C++ code -> Call the C++ compiler -> C++ compiler compiles it -> Now it's compiled and ready to run
+```sh
+cargo build
+```
 
-## Standard library
+Create `hello.aco`:
 
-`std.io` is available by default and provides `print`, `println`, `eprint`, and
-`eprintln`. These functions support primitive values and values with a runtime
-formatter.
+```alaco
+fn main() {
+    println("Hello, Alaco!");
+}
+```
 
-Import additional modules explicitly:
+Run or check it with Cargo:
+
+```sh
+cargo run -- run hello.aco
+cargo run -- check hello.aco
+```
+
+When using an installed `alaco` executable, the equivalent commands are `alaco run hello.aco` and `alaco check hello.aco`. `run` compiles and executes the program; `check` parses and analyzes it without building an executable.
+
+## CLI reference
+
+| Command | Description |
+| --- | --- |
+| `alaco check <file.aco>` | Parse and analyze a source file. |
+| `alaco explain <file.aco>` | Check a file and show diagnostics when errors are found. |
+| `alaco build <file.aco>` | Build a native executable next to the source file. |
+| `alaco build <file.aco> --output <path>` | Build to a specified output path. |
+| `alaco run <file.aco>` | Compile and run a program. |
+| `alaco --help` | Show command-line help. |
+
+## Documentation
+
+- [Language guide](docs/language-guide.md) — syntax, types, functions, control flow, structs, imports, and shell expressions.
+- [Standard library reference](docs/standard-library.md) — module APIs, return values, and runtime limitations.
+
+## Standard library example
 
 ```alaco
 import std.math;
@@ -27,23 +56,16 @@ fn main() {
 }
 ```
 
-Available `std.math` helpers: `min`, `max`, `abs`, `square`, `cube`, `sign`,
-`clamp`, `in_range`, `is_even`, and `is_odd` (integer operations).
+`std.io` is available by default. Other modules must be imported explicitly. See the full [standard-library reference](docs/standard-library.md) for all currently documented modules.
 
-Available `std.string` helpers: `concat`, `is_empty`, and `repeat_string`.
+## Compiler diagnostics
 
-More modules:
+The analyzer checks function argument types before C++ generation and can suggest corrections for misspelled function names, module functions, and struct fields. Diagnostics include source locations when available.
 
-- `std.geometry`: rectangle area/perimeter, squared and Manhattan distance, and point-in-rectangle checks.
-- `std.stats`: sum, average, minimum, and maximum helpers for small fixed groups of integers.
-- `std.units`: Celsius/Fahrenheit, kilometers/miles, and kilograms/pounds conversions (`Float`).
-- `std.validation`: non-empty string, numeric range, positive, and non-negative checks.
-- `std.fs`: read/write UTF-8 text files, query file size in bytes, copy files (overwriting the destination), check existence, remove files, and create directories. `file_size` returns `-1` on failure. Failed reads return an empty string; mutating operations report success as `Bool`.
-- `std.env`: read, check, and set environment variables, and retrieve the current working directory. `get` returns an empty string for missing variables, so pair it with `has` when needed.
-- `std.path`: join paths and inspect basename, dirname, extension, stem, and whether a path is absolute. Path operations are lexical except for the absolute-path check; they do not require the target to exist.
+## Examples and tests
 
-## Diagnostics
+The [`examples/`](examples/) directory contains small programs and standard-library integration examples. Run the compiler's test suite with:
 
-The analyzer checks function argument types before C++ generation and suggests
-likely corrections for misspelled function names, module functions, and struct
-fields. Diagnostics highlight the relevant source location whenever available.
+```sh
+cargo test
+```
