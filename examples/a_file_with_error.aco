@@ -1,0 +1,7 @@
+fn main() {
+    let hello = shell {
+        echo "hi"
+    };
+
+    printl(hello);
+}

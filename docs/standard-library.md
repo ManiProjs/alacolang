@@ -2,6 +2,14 @@
 
 Alaco's standard library is written in Alaco and backed by small native runtime helpers where operating-system access is needed. `std.io` is available by default. Import other modules explicitly, for example `import std.math;`, then call their functions through the module name (`math.abs(-4)`).
 
+## Conventions and error handling
+
+- Standard modules are imported with `import std.<module>;` and normally accessed through the final module name, such as `fs.exists(path)`.
+- Functions use the return types documented below. APIs that return `Bool` or a sentinel value should be checked when failure matters.
+- Several APIs intentionally use simple fallbacks instead of rich error values. An empty string may mean either valid empty data or failure; see each module's notes.
+- Filesystem paths generally use the process's current working directory as their base unless the path is absolute.
+- This is a compact standard library, not a full replacement for the platform APIs or mature JSON/TOML/HTTP libraries.
+
 ## `std.io` — output
 
 Available automatically; no import is required.
@@ -14,6 +22,8 @@ Available automatically; no import is required.
 | `eprintln(value)` | Write a value to standard error followed by a newline. |
 
 Printing supports `String`, `Int`, `Float`, `Bool`, and values with a generated runtime formatter, such as supported structs.
+
+Use `print` when output should continue on the same line and `println` when a trailing newline is useful. The `eprint` variants write to standard error and are suitable for diagnostic messages.
 
 ## `std.math` — integer helpers
 
@@ -102,6 +112,8 @@ Import with `import std.fs;`. Paths are interpreted relative to the process's cu
 
 `file_size` uses bytes, not characters. File operations can fail because of permissions, invalid paths, missing files, or other operating-system errors.
 
+For operations that return `Bool`, treat `false` as failure rather than assuming the filesystem was changed. `write_text` overwrites the destination contents; `copy` may replace an existing destination. Avoid using destructive operations on paths you have not validated.
+
 ## `std.env` — process environment
 
 Import with `import std.env;`.
@@ -146,6 +158,8 @@ Import with `import std.json;`.
 
 These typed accessors read top-level object properties; they do not expose a dynamic JSON value/map/list type or recursively navigate nested objects. String escape decoding covers common escapes.
 
+The helpers are intended for small configuration payloads and straightforward lookups. If a key is nested, or if you need to preserve arbitrary JSON values and types, these accessors are not enough by themselves. `quote` is useful when constructing a JSON string literal; `escape` only escapes the contents and does not add quotes.
+
 ## `std.toml` — TOML configuration utilities
 
 Import with `import std.toml;`.
@@ -160,6 +174,8 @@ Import with `import std.toml;`.
 
 This is not a complete TOML 1.0 parser. Accessors currently target top-level scalar keys; table-scoped keys, full arrays/inline tables, dates, and every grammar edge case are not fully supported.
 
+Treat this module as a convenience for simple scalar settings rather than as a general-purpose TOML implementation. A document accepted by this subset validator should not be taken as proof that every TOML consumer will interpret it identically.
+
 ## `std.http` — HTTP requests
 
 Import with `import std.http;`.
@@ -172,7 +188,24 @@ Import with `import std.http;`.
 
 No `curl` executable is spawned. Windows uses WinHTTP, macOS uses CFNetwork, and other Unix-like builds use OpenSSL 1.1.0+ for TLS with native sockets for transport. The OpenSSL development headers and libraries must be installed when compiling an HTTP-using program on those Unix-like systems. HTTPS certificate and hostname verification are enabled. Failed requests and non-2xx responses return an empty string, so an empty response cannot be distinguished from a failure. The API does not expose status codes or response headers.
 
+Use `is_url` only as a lightweight scheme check, not as complete URL validation. Do not send secrets to untrusted endpoints. Since the API does not expose status codes or headers and uses an empty string for failure, it is best suited to simple requests where that limitation is acceptable.
+
 Runnable examples: `examples/http_demo.aco`, `examples/json_demo.aco`, `examples/toml_demo.aco`, and `examples/type_safety.aco`.
+
+## Choosing an API
+
+| Need | Module | Important limitation |
+| --- | --- | --- |
+| Print output | `std.io` (automatic) | Small set of printable value types |
+| Integer math and predicates | `std.math`, `std.validation`, `std.stats` | Integer-focused; averages discard fractional parts |
+| String composition | `std.string` | Basic helpers; `+` also concatenates strings |
+| File and directory operations | `std.fs` | Some failures use `false`, `-1`, or `""` sentinels |
+| Environment variables and current directory | `std.env` | Changes affect only the running process |
+| Manipulate path strings | `std.path` | Host platform path semantics apply |
+| Validate/read simple JSON | `std.json` | Typed accessors read top-level keys only |
+| Read simple TOML settings | `std.toml` | Supports a limited subset, not full TOML 1.0 |
+| Basic HTTP GET / JSON POST | `std.http` | No status/header API; failures may look like empty bodies |
+| Timestamp and sleep | `std.timing` | Whole-second timestamp and millisecond sleep |
 
 ## `std.timing` — basic time utilities
 
