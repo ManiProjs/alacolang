@@ -211,11 +211,14 @@ impl Parser {
         let name = self.consume_identifier("expected type name")?;
 
         Ok(match name.as_str() {
-            "Int" => Type::Int,
-            "Float" => Type::Float,
-            "Bool" => Type::Bool,
-            "String" => Type::String,
-            "Void" => Type::Void,
+            // Accept both the language's canonical type names and their
+            // lowercase spellings. In particular, `string` must not be
+            // treated as a user-defined type and emitted verbatim into C++.
+            "Int" | "int" => Type::Int,
+            "Float" | "float" => Type::Float,
+            "Bool" | "bool" => Type::Bool,
+            "String" | "string" => Type::String,
+            "Void" | "void" => Type::Void,
             _ => Type::Named(name),
         })
     }

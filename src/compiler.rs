@@ -699,6 +699,17 @@ struct Person {
     }
 
     #[test]
+    fn lowercase_builtin_type_names_generate_valid_cpp_types() {
+        let cpp = Compiler::compile(
+            "fn hello(name: string) { println(name); } fn main() { hello(\"Alaco\"); }",
+            "lowercase_builtin_types.aco",
+        )
+        .expect("lowercase primitive type aliases should compile");
+
+        assert!(cpp.contains("void hello(std::string name)"), "{cpp}");
+    }
+
+    #[test]
     fn additional_standard_modules_expose_geometry_stats_units_and_validation() {
         let cpp = Compiler::compile(
             r#"
