@@ -309,6 +309,84 @@ struct Person {
     }
 
     #[test]
+    fn logical_operators_accept_booleans_and_preserve_precedence() {
+        let cpp = Compiler::compile(
+            "fn main() { let result = true or false and false; println(result); }",
+            "logical_operators_test.aco",
+        )
+        .expect("logical operators should accept boolean operands");
+
+        assert!(cpp.contains("(true || (false && false))"));
+    }
+
+    #[test]
+    fn logical_operators_reject_non_boolean_operands() {
+        for source in [
+            "fn main() { let result = 1 and 2; }",
+            "fn main() { let result = true or 0; }",
+        ] {
+            assert!(
+                Compiler::check(source, "invalid_logical_operator_test.aco").is_err(),
+                "expected logical operator operands to be checked: {source}"
+            );
+        }
+    }
+
+    #[test]
+    fn calling_a_struct_field_is_rejected_during_analysis() {
+        let result = Compiler::check(
+            "struct User { name: String } fn main() { let user = User { name: \"Ada\" }; user.name(); }",
+            "field_call_test.aco",
+        );
+
+        assert!(result.is_err(), "struct fields must not be callable");
+        let diagnostic = format!("{:?}", result.unwrap_err());
+        assert!(diagnostic.contains("not a callable method"), "{diagnostic}");
+    }
+
+    #[test]
+    fn shell_future_get_is_callable_without_arguments() {
+        let valid = Compiler::check(
+            "fn main() { let result = shell { echo hi }.get(); println(result.success); }",
+            "shell_get_test.aco",
+        );
+        assert!(
+            valid.is_ok(),
+            "shell future get() should remain supported: {valid:?}"
+        );
+
+        let invalid = Compiler::check(
+            "fn main() { let result = shell { echo hi }.get(1); }",
+            "shell_get_arguments_test.aco",
+        );
+        assert!(
+            invalid.is_err(),
+            "shell future get() must not accept arguments"
+        );
+    }
+
+    #[test]
+    fn non_void_functions_must_return_on_every_path() {
+        let missing_return = Compiler::check(
+            "fn choose(flag: Bool) -> Int { if flag { return 1; } } fn main() {}",
+            "missing_return_test.aco",
+        );
+        assert!(missing_return.is_err(), "a missing return path must fail");
+        assert!(
+            format!("{:?}", missing_return.unwrap_err()).contains("may finish without returning")
+        );
+
+        let complete_return = Compiler::check(
+            "fn choose(flag: Bool) -> Int { if flag { return 1; } else { return 2; } } fn main() {}",
+            "complete_return_test.aco",
+        );
+        assert!(
+            complete_return.is_ok(),
+            "both branches return: {complete_return:?}"
+        );
+    }
+
+    #[test]
     fn standard_math_module_exposes_common_integer_helpers() {
         let cpp = Compiler::compile(
             r#"

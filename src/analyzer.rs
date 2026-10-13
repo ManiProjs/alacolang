@@ -410,7 +410,50 @@ impl<'a> Analyzer<'a> {
             &expected_return,
             program,
             functions,
-        )
+        )?;
+
+        if expected_return != Type::Void && !Self::block_guarantees_return(&function.body) {
+            return Err(self.error(
+                format!(
+                    "function '{}' may finish without returning a value of type '{}'",
+                    function.name,
+                    self.type_name(&expected_return)
+                ),
+                None,
+            ));
+        }
+
+        Ok(())
+    }
+
+    fn block_guarantees_return(block: &Block) -> bool {
+        for statement in &block.statements {
+            let always_returns = match statement {
+                Stmt::Return(..) => true,
+                Stmt::If {
+                    then_block,
+                    else_block: Some(else_block),
+                    ..
+                } => {
+                    Self::block_guarantees_return(then_block)
+                        && Self::block_guarantees_return(else_block)
+                }
+                Stmt::Match { arms, .. } => {
+                    arms.iter()
+                        .any(|arm| matches!(arm.pattern, MatchPattern::Wildcard))
+                        && arms
+                            .iter()
+                            .all(|arm| Self::block_guarantees_return(&arm.body))
+                }
+                _ => false,
+            };
+
+            if always_returns {
+                return true;
+            }
+        }
+
+        false
     }
 
     // ------------------------------------------------------------
@@ -1116,13 +1159,34 @@ impl<'a> Analyzer<'a> {
             }
 
             let object_type = self.type_of_expression(object, scopes, program, functions)?;
-            let member_type = self.type_of_member(&object_type, member, program, *span)?;
-
-            for argument in arguments {
-                self.type_of_expression(argument, scopes, program, functions)?;
+            // `get()` is the one built-in method exposed by shell futures.
+            // Other members are values (struct fields / ShellResult fields),
+            // not callable functions. Accepting them here would defer an
+            // ordinary source error to the generated C++ compiler.
+            if object_type == Type::Shell && member == "get" {
+                if !arguments.is_empty() {
+                    return Err(self.error(
+                        format!(
+                            "method '{}.{}' expects 0 argument(s), but {} were provided",
+                            self.type_name(&object_type),
+                            member,
+                            arguments.len()
+                        ),
+                        Some(callee.span()),
+                    ));
+                }
+                return Ok(Type::ShellResult);
             }
 
-            return Ok(member_type);
+            self.type_of_member(&object_type, member, program, *span)?;
+            return Err(self.error(
+                format!(
+                    "member '{}.{}' is a value, not a callable method",
+                    self.type_name(&object_type),
+                    member
+                ),
+                Some(callee.span()),
+            ));
         }
 
         let callee_type = self.type_of_expression(callee, scopes, program, functions)?;
@@ -1180,9 +1244,7 @@ impl<'a> Analyzer<'a> {
             | BinaryOp::Subtract
             | BinaryOp::Multiply
             | BinaryOp::Divide
-            | BinaryOp::Modulo
-            | BinaryOp::And
-            | BinaryOp::Or => {
+            | BinaryOp::Modulo => {
                 if operator == BinaryOp::Add
                     && left_type == Type::String
                     && right_type == Type::String
@@ -1197,6 +1259,12 @@ impl<'a> Analyzer<'a> {
                 } else {
                     Ok(Type::Int)
                 }
+            }
+
+            BinaryOp::And | BinaryOp::Or => {
+                self.require_type(&Type::Bool, &left_type, "left logical operand")?;
+                self.require_type(&Type::Bool, &right_type, "right logical operand")?;
+                Ok(Type::Bool)
             }
 
             BinaryOp::Equal | BinaryOp::NotEqual => {

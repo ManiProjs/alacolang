@@ -499,7 +499,7 @@ impl Parser {
     }
 
     fn parse_assignment(&mut self) -> Result<Expr, AlacoError> {
-        let expression = self.parse_equality()?;
+        let expression = self.parse_or()?;
 
         let operator = if self.matches(&TokenKind::Equal) {
             Some(BinaryOp::Assign)
@@ -528,6 +528,36 @@ impl Parser {
         } else {
             Ok(expression)
         }
+    }
+
+    fn parse_or(&mut self) -> Result<Expr, AlacoError> {
+        let mut expression = self.parse_and()?;
+        while self.matches(&TokenKind::Or) {
+            let right = self.parse_and()?;
+            let span = self.token_span(self.previous());
+            expression = Expr::Binary {
+                left: Box::new(expression),
+                operator: BinaryOp::Or,
+                right: Box::new(right),
+                span,
+            };
+        }
+        Ok(expression)
+    }
+
+    fn parse_and(&mut self) -> Result<Expr, AlacoError> {
+        let mut expression = self.parse_equality()?;
+        while self.matches(&TokenKind::And) {
+            let right = self.parse_equality()?;
+            let span = self.token_span(self.previous());
+            expression = Expr::Binary {
+                left: Box::new(expression),
+                operator: BinaryOp::And,
+                right: Box::new(right),
+                span,
+            };
+        }
+        Ok(expression)
     }
 
     fn parse_equality(&mut self) -> Result<Expr, AlacoError> {

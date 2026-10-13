@@ -325,6 +325,8 @@ impl<'a> Lexer<'a> {
             "false" => self.add_token(TokenKind::False),
             "match" => self.add_token(TokenKind::Match),
             "struct" => self.add_token(TokenKind::Struct),
+            "and" => self.add_token(TokenKind::And),
+            "or" => self.add_token(TokenKind::Or),
 
             "shell" => {
                 self.scan_shell_or_keyword()?;

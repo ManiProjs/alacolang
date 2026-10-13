@@ -35,6 +35,8 @@ total = total + 1;
 
 Declare functions with `fn`, typed parameters, and an optional return type. Functions without a return type do not return a value.
 
+Functions with a non-`Void` return type must return a value on every statically recognized path. The analyzer recognizes direct returns and `if`/`else` branches that both return; it does not assume that a loop will run or terminate.
+
 ```alaco
 fn add(left: Int, right: Int) -> Int {
     return left + right;
@@ -57,7 +59,7 @@ if score >= 10 {
 }
 ```
 
-The implemented binary operators include arithmetic (`+`, `-`, `*`, `/`, `%`), comparisons (`==`, `!=`, `<`, `<=`, `>`, `>=`), and compound assignments (`+=`, `-=`, `*=`, `/=`). Parentheses can group expressions.
+The implemented binary operators include arithmetic (`+`, `-`, `*`, `/`, `%`), comparisons (`==`, `!=`, `<`, `<=`, `>`, `>=`), logical `and` / `or`, and compound assignments (`+=`, `-=`, `*=`, `/=`). Logical operators require `Bool` operands; `and` binds more tightly than `or`. Parentheses can group expressions.
 
 ## Loops and match
 
