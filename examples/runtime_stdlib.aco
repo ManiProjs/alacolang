@@ -15,6 +15,25 @@ fn verify_runtime() -> Bool {
         return false;
     }
 
+    if fs.file_size(file) != 13 {
+        println("filesystem size failed");
+        return false;
+    }
+
+    let copied_file = "alaco-runtime-stdlib-copy.txt";
+    if fs.copy(file, copied_file) == false {
+        println("filesystem copy failed");
+        return false;
+    }
+    if fs.read_text(copied_file) != "runtime works" {
+        println("filesystem copied contents failed");
+        return false;
+    }
+    if fs.remove(copied_file) == false {
+        println("filesystem copied file cleanup failed");
+        return false;
+    }
+
     if fs.exists(file) == false {
         println("filesystem exists failed");
         return false;

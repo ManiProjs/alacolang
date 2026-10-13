@@ -391,6 +391,8 @@ struct Person {
 
             fn main() {
                 println(fs.read_text("notes.txt"));
+                println(fs.file_size("notes.txt"));
+                println(fs.copy("notes.txt", "backup.txt"));
                 println(fs.write_text("notes.txt", "hello"));
                 println(env.get("HOME"));
                 println(env.current_dir());
@@ -405,6 +407,8 @@ struct Person {
         assert!(cpp.contains("#include <filesystem>"));
         assert!(cpp.contains("#include <fstream>"));
         assert!(cpp.contains("static std::string __builtin_fs_read_text"));
+        assert!(cpp.contains("static long long __builtin_fs_file_size"));
+        assert!(cpp.contains("static bool __builtin_fs_copy"));
         assert!(cpp.contains("static bool __builtin_env_set"));
         assert!(cpp.contains("static std::string __builtin_path_join"));
         assert!(cpp.contains("fs::read_text(\"notes.txt\")"));

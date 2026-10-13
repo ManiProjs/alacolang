@@ -281,6 +281,12 @@ impl<'a> Analyzer<'a> {
             // analyzing std implementations, never directly to user code.
             for (name, params, return_type) in [
                 ("__builtin_fs_read_text", vec![Type::String], Type::String),
+                ("__builtin_fs_file_size", vec![Type::String], Type::Int),
+                (
+                    "__builtin_fs_copy",
+                    vec![Type::String, Type::String],
+                    Type::Bool,
+                ),
                 (
                     "__builtin_fs_write_text",
                     vec![Type::String, Type::String],

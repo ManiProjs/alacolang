@@ -4,6 +4,16 @@ fn read_text(path: String) -> String {
     return __builtin_fs_read_text(path);
 }
 
+// Returns the file size in bytes, or -1 when the size cannot be read.
+fn file_size(path: String) -> Int {
+    return __builtin_fs_file_size(path);
+}
+
+// Copies a file, replacing the destination if it already exists.
+fn copy(source: String, destination: String) -> Bool {
+    return __builtin_fs_copy(source, destination);
+}
+
 fn write_text(path: String, contents: String) -> Bool {
     return __builtin_fs_write_text(path, contents);
 }
