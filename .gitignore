@@ -2,3 +2,8 @@
 hello
 .omc/
 .DS_Store
+
+# Generated VS Code extension packages and build output.
+editors/vscode/*.vsix
+editors/vscode/out/
+editors/vscode/node_modules/

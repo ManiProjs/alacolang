@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::{cell::RefCell, collections::HashMap, collections::HashSet};
 
 use crate::{
     ast::{
@@ -6,6 +6,7 @@ use crate::{
         UnaryOp,
     },
     error::AlacoError,
+    ir::IrProgram,
     language::BinaryOp,
     stdlib::LoadedModule,
 };
@@ -26,14 +27,18 @@ struct FunctionInfo {
 #[derive(Debug, Clone)]
 pub struct Analyzer<'a> {
     modules: &'a [LoadedModule],
+    expression_types: RefCell<HashMap<(usize, usize), Type>>,
 }
 
 impl<'a> Analyzer<'a> {
     pub fn new(modules: &'a [LoadedModule]) -> Self {
-        Self { modules }
+        Self {
+            modules,
+            expression_types: RefCell::new(HashMap::new()),
+        }
     }
 
-    pub fn analyze(&self, program: &Program) -> Result<(), AlacoError> {
+    pub fn analyze(&self, program: &Program) -> Result<IrProgram, AlacoError> {
         self.check_top_level(program)?;
         self.check_structs(program)?;
 
@@ -56,7 +61,35 @@ impl<'a> Analyzer<'a> {
             }
         }
 
-        Ok(())
+        Ok(IrProgram::from_validated(
+            program,
+            &self.expression_types.borrow(),
+        ))
+    }
+
+    /// Analyze one imported module in isolation for IR lowering while keeping
+    /// the full module list available for resolving qualified calls.
+    pub fn analyze_module(&self, program: &Program) -> Result<IrProgram, AlacoError> {
+        for item in &program.items {
+            if let Item::Statement(statement) = item {
+                return Err(AlacoError::TopLevelStatement {
+                    span: statement.span().into(),
+                });
+            }
+        }
+        self.check_structs(program)?;
+        let functions = self.collect_functions(program, true, true)?;
+
+        for item in &program.items {
+            if let Item::Function(function) = item {
+                self.analyze_function(function, program, &functions)?;
+            }
+        }
+
+        Ok(IrProgram::from_validated(
+            program,
+            &self.expression_types.borrow(),
+        ))
     }
 
     // ------------------------------------------------------------
@@ -857,7 +890,12 @@ impl<'a> Analyzer<'a> {
                     self.type_of_expression(expression, scopes, program, functions)?;
 
                 for arm in arms {
-                    self.check_match_pattern(&arm.pattern, &expression_type, expression.span())?;
+                    self.check_match_pattern(
+                        &arm.pattern,
+                        &expression_type,
+                        expression.span(),
+                        scopes,
+                    )?;
 
                     self.analyze_block(
                         &arm.body,
@@ -960,6 +998,23 @@ impl<'a> Analyzer<'a> {
         program: &Program,
         functions: &HashMap<String, FunctionInfo>,
     ) -> Result<Type, AlacoError> {
+        let result = self.type_of_expression_inner(expression, scopes, program, functions);
+        if let Ok(ty) = &result {
+            let span = expression.span();
+            self.expression_types
+                .borrow_mut()
+                .insert((span.start, span.end), ty.clone());
+        }
+        result
+    }
+
+    fn type_of_expression_inner(
+        &self,
+        expression: &Expr,
+        scopes: &mut Vec<HashMap<String, Variable>>,
+        program: &Program,
+        functions: &HashMap<String, FunctionInfo>,
+    ) -> Result<Type, AlacoError> {
         match expression {
             Expr::Number(value, _) => {
                 if value.contains('.') {
@@ -974,10 +1029,7 @@ impl<'a> Analyzer<'a> {
             Expr::Interpolation(parts, span) => {
                 for name in parts.iter().skip(1).step_by(2) {
                     if self.find_variable(scopes, name).is_none() {
-                        return Err(AlacoError::UndefinedVariable {
-                            name: name.clone(),
-                            span: (*span).into(),
-                        });
+                        return Err(self.undefined_variable_error(name, *span, scopes));
                     }
                 }
                 Ok(Type::String)
@@ -1007,10 +1059,7 @@ impl<'a> Analyzer<'a> {
                     ));
                 }
 
-                Err(AlacoError::UndefinedVariable {
-                    name: name.clone(),
-                    span: (*span).into(),
-                })
+                Err(self.undefined_variable_error(name, *span, scopes))
             }
 
             Expr::StructLiteral { name, fields, span } => {
@@ -1067,14 +1116,16 @@ impl<'a> Analyzer<'a> {
                     other => (other, &[]),
                 };
                 arguments.extend(additional_arguments.iter().cloned());
-                self.type_of_call(callee, &arguments, scopes, program, functions)
+                let result = self
+                    .type_of_call(callee, &arguments, scopes, program, functions)
                     .map_err(|error| match error {
                         AlacoError::Analysis {
                             message,
                             span: None,
                         } => self.error(message, Some(*span)),
                         other => other,
-                    })
+                    })?;
+                Ok(result)
             }
 
             Expr::Call {
@@ -1663,6 +1714,7 @@ impl<'a> Analyzer<'a> {
         pattern: &MatchPattern,
         expression_type: &Type,
         span: Span,
+        scopes: &[HashMap<String, Variable>],
     ) -> Result<(), AlacoError> {
         match pattern {
             MatchPattern::Number(_) => {
@@ -1685,7 +1737,23 @@ impl<'a> Analyzer<'a> {
                 self.require_type_at(&Type::Bool, expression_type, "boolean match pattern", span)?;
             }
 
-            MatchPattern::Identifier(_) | MatchPattern::Wildcard => {}
+            MatchPattern::Identifier(name) => {
+                let Some(variable) = self.find_variable(scopes, name) else {
+                    return Err(self.undefined_variable_error(name, span, scopes));
+                };
+                if !self.types_compatible(expression_type, &variable.ty) {
+                    return Err(self.error(
+                        format!(
+                            "match pattern variable '{}' has type {}, but the matched expression has type {}",
+                            name,
+                            self.type_name(&variable.ty),
+                            self.type_name(expression_type)
+                        ),
+                        Some(span),
+                    ));
+                }
+            }
+            MatchPattern::Wildcard => {}
         }
 
         Ok(())
@@ -1811,6 +1879,31 @@ impl<'a> Analyzer<'a> {
                 .filter(|candidate| !candidate.starts_with("__builtin_"))
                 .map(String::as_str),
         )
+    }
+
+    fn undefined_variable_error(
+        &self,
+        name: &str,
+        span: Span,
+        scopes: &[HashMap<String, Variable>],
+    ) -> AlacoError {
+        let suggestion = closest_name(
+            name,
+            scopes
+                .iter()
+                .flat_map(|scope| scope.keys().map(String::as_str)),
+        );
+
+        match suggestion {
+            Some(suggestion) => self.error(
+                format!("undefined variable '{name}'; did you mean '{suggestion}'?"),
+                Some(span),
+            ),
+            None => AlacoError::UndefinedVariable {
+                name: name.to_string(),
+                span: span.into(),
+            },
+        }
     }
 
     fn error(&self, message: impl Into<String>, span: Option<Span>) -> AlacoError {

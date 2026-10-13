@@ -1,9 +1,10 @@
 use std::collections::HashSet;
 
 use crate::{
-    ast::{
-        Block, Expr, Function, Import, Item, LoopKind, MatchArm, MatchPattern, Param, Program,
-        Stmt, Struct, Type, UnaryOp,
+    ast::{Type, UnaryOp},
+    ir::{
+        IrCallee, IrExpr, IrExprKind, IrFunction, IrItem, IrLoopKind, IrMatchPattern, IrPipeTarget,
+        IrProgram, IrStmt, IrStruct,
     },
     language::BinaryOp,
 };
@@ -58,29 +59,20 @@ impl CppCodegen {
         }
     }
 
-    pub fn generate(mut self, program: &Program) -> String {
-        let requirements = self.runtime_requirements(program, &[]);
-
-        self.generate_header(&requirements);
-        self.generate_runtime(&requirements);
-
-        for item in &program.items {
-            self.generate_item(item);
-        }
-
-        self.output
-    }
-
     pub fn generate_with_modules(
         mut self,
-        program: &Program,
+        ir: &IrProgram,
         modules: &[crate::stdlib::LoadedModule],
     ) -> String {
         self.module_aliases = modules.iter().map(|module| module.alias.clone()).collect();
-        let requirements = self.runtime_requirements(program, modules);
+        let requirements = self.runtime_requirements(ir, modules);
 
         self.generate_header(&requirements);
         self.generate_runtime(&requirements);
+
+        for structure in &ir.structs {
+            self.generate_ir_struct(structure);
+        }
 
         for module in modules {
             if module.name == "std.io" {
@@ -88,12 +80,33 @@ impl CppCodegen {
                 // print(...) remain available without a module qualifier.
                 // The four print functions are emitted as C++ templates in
                 // the runtime so they can accept any streamable value.
-                for item in &module.program.items {
-                    if matches!(item, Item::Function(function) if matches!(function.name.as_str(), "print" | "println" | "eprint" | "eprintln"))
-                    {
-                        continue;
+                let module_ir = module
+                    .ir
+                    .as_ref()
+                    .expect("every loaded module must have validated IR");
+                for item in &module_ir.items {
+                    match item {
+                        IrItem::Function(name)
+                            if matches!(
+                                name.as_str(),
+                                "print" | "println" | "eprint" | "eprintln"
+                            ) =>
+                        {
+                            continue;
+                        }
+                        IrItem::Function(name) => self.generate_ir_function(
+                            module_ir
+                                .function(name)
+                                .expect("IR item must reference a function"),
+                        ),
+                        IrItem::Struct(name) => self.generate_ir_struct(
+                            module_ir
+                                .structs
+                                .iter()
+                                .find(|item| &item.name == name)
+                                .expect("IR item must reference a struct"),
+                        ),
                     }
-                    self.generate_item(item);
                 }
             } else {
                 // Explicitly imported modules keep their namespace, matching
@@ -104,8 +117,25 @@ impl CppCodegen {
                 ));
                 self.indent += 1;
 
-                for item in &module.program.items {
-                    self.generate_item(item);
+                let module_ir = module
+                    .ir
+                    .as_ref()
+                    .expect("every loaded module must have validated IR");
+                for item in &module_ir.items {
+                    match item {
+                        IrItem::Function(name) => self.generate_ir_function(
+                            module_ir
+                                .function(name)
+                                .expect("IR item must reference a function"),
+                        ),
+                        IrItem::Struct(name) => self.generate_ir_struct(
+                            module_ir
+                                .structs
+                                .iter()
+                                .find(|item| &item.name == name)
+                                .expect("IR item must reference a struct"),
+                        ),
+                    }
                 }
 
                 self.indent -= 1;
@@ -125,31 +155,11 @@ impl CppCodegen {
             }
         }
 
-        for item in &program.items {
-            self.generate_item(item);
+        for function in &ir.functions {
+            self.generate_ir_function(function);
         }
 
         self.output
-    }
-
-    // ============================================================
-    // Intrinsics
-    // ============================================================
-
-    fn generate_intrinsic_call(&self, name: &str, arguments: &[Expr]) -> String {
-        let arguments = arguments
-            .iter()
-            .map(|argument| self.expression(argument))
-            .collect::<Vec<_>>()
-            .join(", ");
-
-        match name {
-            "__builtin_print" | "__builtin_println" | "__builtin_eprint" | "__builtin_eprintln" => {
-                format!("{}({})", name, arguments)
-            }
-
-            _ => format!("{}({})", self.cpp_identifier(name), arguments),
-        }
     }
 
     // ============================================================
@@ -158,7 +168,7 @@ impl CppCodegen {
 
     fn runtime_requirements(
         &self,
-        program: &Program,
+        program: &IrProgram,
         modules: &[crate::stdlib::LoadedModule],
     ) -> RuntimeRequirements {
         let mut requirements = RuntimeRequirements::default();
@@ -174,41 +184,29 @@ impl CppCodegen {
                 "std.timing" => requirements.time = true,
                 _ => {}
             }
-            self.scan_items_for_runtime(&module.program.items, &mut requirements);
+            if let Some(ir) = &module.ir {
+                self.scan_ir_for_runtime(ir, &mut requirements);
+            }
         }
 
-        self.scan_items_for_runtime(&program.items, &mut requirements);
+        self.scan_ir_for_runtime(program, &mut requirements);
 
         requirements
     }
 
-    fn scan_items_for_runtime(&self, items: &[Item], requirements: &mut RuntimeRequirements) {
-        for item in items {
-            match item {
-                Item::Import(_) => {}
-
-                Item::Struct(struct_) => {
-                    for field in &struct_.fields {
-                        self.scan_type_for_runtime(&field.ty, requirements);
-                    }
-                }
-
-                Item::Function(function) => {
-                    if let Some(return_type) = &function.return_type {
-                        self.scan_type_for_runtime(return_type, requirements);
-                    }
-
-                    for param in &function.params {
-                        self.scan_type_for_runtime(&param.ty, requirements);
-                    }
-
-                    self.scan_block_for_runtime(&function.body, requirements);
-                }
-
-                Item::Statement(statement) => {
-                    self.scan_statement_for_runtime(statement, requirements);
-                }
+    fn scan_ir_for_runtime(&self, program: &IrProgram, requirements: &mut RuntimeRequirements) {
+        for structure in &program.structs {
+            for field in &structure.fields {
+                self.scan_type_for_runtime(&field.ty, requirements);
             }
+        }
+
+        for function in &program.functions {
+            self.scan_type_for_runtime(&function.return_type, requirements);
+            for parameter in &function.parameters {
+                self.scan_type_for_runtime(&parameter.ty, requirements);
+            }
+            self.scan_ir_block_for_runtime(&function.body, requirements);
         }
     }
 
@@ -226,37 +224,42 @@ impl CppCodegen {
         }
     }
 
-    fn scan_block_for_runtime(&self, block: &Block, requirements: &mut RuntimeRequirements) {
+    fn scan_ir_block_for_runtime(
+        &self,
+        block: &crate::ir::IrBlock,
+        requirements: &mut RuntimeRequirements,
+    ) {
         for statement in &block.statements {
-            self.scan_statement_for_runtime(statement, requirements);
+            self.scan_ir_statement_for_runtime(statement, requirements);
         }
     }
 
-    fn scan_statement_for_runtime(&self, statement: &Stmt, requirements: &mut RuntimeRequirements) {
+    fn scan_ir_statement_for_runtime(
+        &self,
+        statement: &IrStmt,
+        requirements: &mut RuntimeRequirements,
+    ) {
         match statement {
-            Stmt::Let { ty, value, .. } => {
-                if let Some(ty) = ty {
-                    self.scan_type_for_runtime(ty, requirements);
-                }
-
+            IrStmt::Let { ty, value, .. } => {
+                self.scan_type_for_runtime(ty, requirements);
                 self.scan_expr_for_runtime(value, requirements);
             }
 
-            Stmt::Destructure { value, .. } => self.scan_expr_for_runtime(value, requirements),
+            IrStmt::Destructure { value, .. } => self.scan_expr_for_runtime(value, requirements),
 
-            Stmt::Return(value, ..) | Stmt::Stop(value, ..) => {
+            IrStmt::Return(value, ..) | IrStmt::Stop(value, ..) => {
                 if let Some(value) = value {
                     self.scan_expr_for_runtime(value, requirements);
                 }
             }
 
-            Stmt::Skip(..) => {}
+            IrStmt::Skip(..) => {}
 
-            Stmt::Expr(expression, ..) => {
+            IrStmt::Expr(expression, ..) => {
                 self.scan_expr_for_runtime(expression, requirements);
             }
 
-            Stmt::If {
+            IrStmt::If {
                 condition,
                 then_block,
                 else_block,
@@ -264,82 +267,94 @@ impl CppCodegen {
             } => {
                 self.scan_expr_for_runtime(condition, requirements);
 
-                self.scan_block_for_runtime(then_block, requirements);
+                self.scan_ir_block_for_runtime(then_block, requirements);
 
                 if let Some(else_block) = else_block {
-                    self.scan_block_for_runtime(else_block, requirements);
+                    self.scan_ir_block_for_runtime(else_block, requirements);
                 }
             }
 
-            Stmt::Loop { kind, body, .. } => {
+            IrStmt::Loop { kind, body, .. } => {
                 match kind {
-                    LoopKind::Infinite => {}
+                    IrLoopKind::Infinite => {}
 
-                    LoopKind::Repeat(expression) => {
+                    IrLoopKind::Repeat(expression) => {
                         self.scan_expr_for_runtime(expression, requirements);
                     }
 
-                    LoopKind::While(expression) => {
+                    IrLoopKind::While(expression) => {
                         self.scan_expr_for_runtime(expression, requirements);
                     }
 
-                    LoopKind::For { iterable, .. } => {
+                    IrLoopKind::For { iterable, .. } => {
                         self.scan_expr_for_runtime(iterable, requirements);
                     }
                 }
 
-                self.scan_block_for_runtime(body, requirements);
+                self.scan_ir_block_for_runtime(body, requirements);
             }
 
-            Stmt::Match {
+            IrStmt::Match {
                 expression, arms, ..
             } => {
                 self.scan_expr_for_runtime(expression, requirements);
 
                 for arm in arms {
-                    self.scan_block_for_runtime(&arm.body, requirements);
+                    self.scan_ir_block_for_runtime(&arm.body, requirements);
                 }
             }
         }
     }
 
-    fn scan_expr_for_runtime(&self, expression: &Expr, requirements: &mut RuntimeRequirements) {
-        match expression {
-            Expr::Shell { .. } => {
+    fn scan_expr_for_runtime(&self, expression: &IrExpr, requirements: &mut RuntimeRequirements) {
+        self.scan_type_for_runtime(&expression.ty, requirements);
+        match &expression.kind {
+            IrExprKind::Shell { .. } => {
                 requirements.shell = true;
             }
 
-            Expr::Identifier(..)
-            | Expr::Number(..)
-            | Expr::String(..)
-            | Expr::Interpolation(..)
-            | Expr::Bool(..) => {}
+            IrExprKind::Identifier(..)
+            | IrExprKind::Number(..)
+            | IrExprKind::String(..)
+            | IrExprKind::Interpolation(..)
+            | IrExprKind::Bool(..) => {}
 
-            Expr::StructLiteral { fields, .. } => {
+            IrExprKind::StructLiteral { fields, .. } => {
                 for (_, value) in fields {
                     self.scan_expr_for_runtime(value, requirements);
                 }
             }
 
-            Expr::Binary { left, right, .. } => {
+            IrExprKind::Binary { left, right, .. } => {
                 self.scan_expr_for_runtime(left, requirements);
 
                 self.scan_expr_for_runtime(right, requirements);
             }
 
-            Expr::Pipe { input, target, .. } => {
+            IrExprKind::Pipe { input, target, .. } => {
                 self.scan_expr_for_runtime(input, requirements);
-                self.scan_expr_for_runtime(target, requirements);
+                match target {
+                    IrPipeTarget::Call { callee, arguments } => {
+                        self.scan_callee_for_runtime(callee, requirements);
+                        for argument in arguments {
+                            self.scan_expr_for_runtime(argument, requirements);
+                        }
+                    }
+                    IrPipeTarget::Callee(callee) => {
+                        self.scan_callee_for_runtime(callee, requirements);
+                    }
+                    IrPipeTarget::Value(value) => self.scan_expr_for_runtime(value, requirements),
+                }
             }
 
-            Expr::Unary { operand, .. } => {
+            IrExprKind::Unary { operand, .. } => {
                 self.scan_expr_for_runtime(operand, requirements);
             }
 
-            Expr::Call {
+            IrExprKind::Call {
                 callee, arguments, ..
             } => {
-                if let Expr::Identifier(name, ..) = callee.as_ref() {
+                if let IrCallee::Identifier(name) = callee {
                     match name.as_str() {
                         "__builtin_print" | "print" => requirements.print = true,
                         "__builtin_println" | "println" => requirements.println = true,
@@ -366,18 +381,18 @@ impl CppCodegen {
                     }
                 }
 
-                self.scan_expr_for_runtime(callee, requirements);
+                self.scan_callee_for_runtime(callee, requirements);
 
                 for argument in arguments {
                     self.scan_expr_for_runtime(argument, requirements);
                 }
             }
 
-            Expr::Member { object, .. } => {
+            IrExprKind::Member { object, .. } => {
                 self.scan_expr_for_runtime(object, requirements);
             }
 
-            Expr::Intrinsic {
+            IrExprKind::Intrinsic {
                 name, arguments, ..
             } => {
                 match name.as_str() {
@@ -404,6 +419,14 @@ impl CppCodegen {
                     self.scan_expr_for_runtime(argument, requirements);
                 }
             }
+        }
+    }
+
+    fn scan_callee_for_runtime(&self, callee: &IrCallee, requirements: &mut RuntimeRequirements) {
+        match callee {
+            IrCallee::Identifier(_) => {}
+            IrCallee::Member { object, .. } => self.scan_callee_for_runtime(object, requirements),
+            IrCallee::Value(value) => self.scan_expr_for_runtime(value, requirements),
         }
     }
 
@@ -993,38 +1016,12 @@ static std::string __builtin_http_post(const std::string& url, const std::string
     // Items
     // ============================================================
 
-    fn generate_item(&mut self, item: &Item) {
-        match item {
-            Item::Import(import) => {
-                self.generate_import(import);
-            }
-
-            Item::Struct(struct_) => {
-                self.generate_struct(struct_);
-            }
-
-            Item::Function(function) => {
-                self.generate_function(function);
-            }
-
-            Item::Statement(statement) => {
-                self.generate_statement(statement);
-            }
-        }
-    }
-
-    fn generate_import(&mut self, _import: &Import) {
-        // Imports are resolved by the Alaco compiler
-        // before C++ generation.
-    }
-
-    fn generate_struct(&mut self, struct_: &Struct) {
-        let name = self.cpp_identifier(&struct_.name);
+    fn generate_ir_struct(&mut self, structure: &IrStruct) {
+        let name = self.cpp_identifier(&structure.name);
         self.push_line(&format!("struct {} {{", name));
-
         self.indent += 1;
 
-        for field in &struct_.fields {
+        for field in &structure.fields {
             self.push_line(&format!(
                 "{} {};",
                 self.type_name(&field.ty),
@@ -1033,18 +1030,16 @@ static std::string __builtin_http_post(const std::string& url, const std::string
         }
 
         self.indent -= 1;
-
         self.push_line("};");
         self.push_line("");
 
-        // Give every Alaco struct a default human-readable representation.
         self.push_line(&format!(
             "static std::ostream& operator<<(std::ostream& stream, const {}& value) {{",
             name
         ));
         self.indent += 1;
-        self.push_line(&format!("stream << \"{} {{\";", struct_.name));
-        for (index, field) in struct_.fields.iter().enumerate() {
+        self.push_line(&format!("stream << \"{} {{\";", structure.name));
+        for (index, field) in structure.fields.iter().enumerate() {
             let separator = if index == 0 { " " } else { ", " };
             self.push_line(&format!("stream << \"{}{}: \";", separator, field.name));
             if field.ty == Type::Bool {
@@ -1066,86 +1061,54 @@ static std::string __builtin_http_post(const std::string& url, const std::string
         self.push_line("");
     }
 
-    fn generate_function(&mut self, function: &Function) {
+    fn generate_ir_function(&mut self, function: &IrFunction) {
         let return_type = if function.name == "main" {
             "int".to_string()
         } else {
-            function
-                .return_type
-                .as_ref()
-                .map(|ty| self.type_name(ty))
-                .unwrap_or_else(|| "void".to_string())
+            self.type_name(&function.return_type)
         };
-
         let name = self.cpp_identifier(&function.name);
-
         let params = function
-            .params
+            .parameters
             .iter()
-            .map(|param| self.generate_param(param))
+            .map(|param| {
+                format!(
+                    "{} {}",
+                    self.type_name(&param.ty),
+                    self.cpp_identifier(&param.name)
+                )
+            })
             .collect::<Vec<_>>()
             .join(", ");
 
         self.push_line(&format!("{} {}({}) {{", return_type, name, params));
-
         self.indent += 1;
-
-        self.generate_block_contents(&function.body);
-
+        self.generate_ir_block_contents(&function.body);
         if function.name == "main" {
             self.push_line("return 0;");
         }
-
         self.indent -= 1;
-
         self.push_line("}");
         self.push_line("");
     }
 
-    fn generate_param(&self, param: &Param) -> String {
-        format!(
-            "{} {}",
-            self.type_name(&param.ty),
-            self.cpp_identifier(&param.name)
-        )
-    }
-
-    fn generate_block_contents(&mut self, block: &Block) {
+    fn generate_ir_block_contents(&mut self, block: &crate::ir::IrBlock) {
         for statement in &block.statements {
-            self.generate_statement(statement);
+            self.generate_ir_statement(statement);
         }
     }
 
-    // ============================================================
-    // Statements
-    // ============================================================
-
-    fn generate_statement(&mut self, statement: &Stmt) {
+    fn generate_ir_statement(&mut self, statement: &IrStmt) {
         match statement {
-            Stmt::Let {
-                name,
-                mutable: _,
-                ty,
-                value,
-                ..
-            } => {
-                let cpp_name = self.cpp_identifier(name);
-
-                let expression = self.expression(value);
-
-                if let Some(ty) = ty {
-                    self.push_line(&format!(
-                        "{} {} = {};",
-                        self.type_name(ty),
-                        cpp_name,
-                        expression
-                    ));
-                } else {
-                    self.push_line(&format!("auto {} = {};", cpp_name, expression));
-                }
-            }
-
-            Stmt::Destructure {
+            IrStmt::Let {
+                name, ty, value, ..
+            } => self.push_line(&format!(
+                "{} {} = {};",
+                self.type_name(ty),
+                self.cpp_identifier(name),
+                self.ir_expression(value)
+            )),
+            IrStmt::Destructure {
                 bindings,
                 value,
                 span,
@@ -1155,7 +1118,7 @@ static std::string __builtin_http_post(const std::string& url, const std::string
                 self.push_line(&format!(
                     "const auto {} = {};",
                     temporary,
-                    self.expression(value)
+                    self.ir_expression(value)
                 ));
                 for (field, binding) in bindings {
                     self.push_line(&format!(
@@ -1166,222 +1129,101 @@ static std::string __builtin_http_post(const std::string& url, const std::string
                     ));
                 }
             }
-
-            Stmt::Return(value, ..) => {
-                if let Some(value) = value {
-                    self.push_line(&format!("return {};", self.expression(value)));
-                } else {
-                    self.push_line("return;");
-                }
+            IrStmt::Return(value, _) | IrStmt::Stop(value, _) => {
+                self.push_line(
+                    &value
+                        .as_ref()
+                        .map(|v| format!("return {};", self.ir_expression(v)))
+                        .unwrap_or_else(|| "return;".to_string()),
+                );
             }
-
-            Stmt::Stop(value, ..) => {
-                if let Some(value) = value {
-                    self.push_line(&format!("return {};", self.expression(value)));
-                } else {
-                    self.push_line("return;");
-                }
-            }
-
-            Stmt::Skip(..) => {
-                self.push_line("continue;");
-            }
-
-            Stmt::Expr(expression, ..) => {
-                self.push_line(&format!("{};", self.expression(expression)));
-            }
-
-            Stmt::If {
+            IrStmt::Skip(_) => self.push_line("continue;"),
+            IrStmt::Expr(expr, _) => self.push_line(&format!("{};", self.ir_expression(expr))),
+            IrStmt::If {
                 condition,
                 then_block,
                 else_block,
                 ..
             } => {
-                self.push_line(&format!("if ({}) {{", self.expression(condition)));
-
+                self.push_line(&format!("if ({}) {{", self.ir_expression(condition)));
                 self.indent += 1;
-
-                self.generate_block_contents(then_block);
-
+                self.generate_ir_block_contents(then_block);
                 self.indent -= 1;
-
-                if let Some(else_block) = else_block {
+                if let Some(block) = else_block {
                     self.push_line("} else {");
-
                     self.indent += 1;
-
-                    self.generate_block_contents(else_block);
-
+                    self.generate_ir_block_contents(block);
                     self.indent -= 1;
                 }
-
                 self.push_line("}");
             }
-
-            Stmt::Loop {
+            IrStmt::Loop {
                 kind,
                 binding,
                 body,
                 ..
             } => {
-                self.generate_loop(kind, binding.as_deref(), body);
+                match kind {
+                    IrLoopKind::Infinite => self.push_line("while (true) {"),
+                    IrLoopKind::Repeat(count) => self.push_line(&format!(
+                        "for (long long _i = 0; _i < {}; ++_i) {{",
+                        self.ir_expression(count)
+                    )),
+                    IrLoopKind::While(condition) => {
+                        self.push_line(&format!("while ({}) {{", self.ir_expression(condition)))
+                    }
+                    IrLoopKind::For { variable, iterable } => self.push_line(&format!(
+                        "for (auto {} : {}) {{",
+                        self.cpp_identifier(binding.as_deref().unwrap_or(variable)),
+                        self.ir_expression(iterable)
+                    )),
+                }
+                self.indent += 1;
+                self.generate_ir_block_contents(body);
+                self.indent -= 1;
+                self.push_line("}");
             }
-
-            Stmt::Match {
+            IrStmt::Match {
                 expression, arms, ..
             } => {
-                self.generate_match(expression, arms);
-            }
-        }
-    }
-
-    // ============================================================
-    // Loops
-    // ============================================================
-
-    fn generate_loop(&mut self, kind: &LoopKind, binding: Option<&str>, body: &Block) {
-        match kind {
-            LoopKind::Infinite => {
-                self.push_line("while (true) {");
-
-                self.indent += 1;
-
-                self.generate_block_contents(body);
-
-                self.indent -= 1;
-
-                self.push_line("}");
-            }
-
-            LoopKind::Repeat(count) => {
-                let count = self.expression(count);
-
-                self.push_line(&format!("for (long long _i = 0; _i < {}; ++_i) {{", count));
-
-                self.indent += 1;
-
-                self.generate_block_contents(body);
-
-                self.indent -= 1;
-
-                self.push_line("}");
-            }
-
-            LoopKind::While(condition) => {
-                self.push_line(&format!("while ({}) {{", self.expression(condition)));
-
-                self.indent += 1;
-
-                self.generate_block_contents(body);
-
-                self.indent -= 1;
-
-                self.push_line("}");
-            }
-
-            LoopKind::For { variable, iterable } => {
-                let variable = binding.unwrap_or(variable);
-
-                let variable = self.cpp_identifier(variable);
-
-                let iterable = self.expression(iterable);
-
-                self.push_line(&format!("for (auto {} : {}) {{", variable, iterable));
-
-                self.indent += 1;
-
-                self.generate_block_contents(body);
-
-                self.indent -= 1;
-
-                self.push_line("}");
-            }
-        }
-    }
-
-    // ============================================================
-    // Match
-    // ============================================================
-
-    fn generate_match(&mut self, expression: &Expr, arms: &[MatchArm]) {
-        if arms.is_empty() {
-            return;
-        }
-
-        let expression = self.expression(expression);
-
-        let temp = "_match_value";
-
-        self.push_line(&format!("auto {} = {};", temp, expression));
-
-        for (index, arm) in arms.iter().enumerate() {
-            let condition = self.match_condition(temp, &arm.pattern);
-
-            if index == 0 {
-                match condition {
-                    Some(condition) => {
-                        self.push_line(&format!("if ({}) {{", condition));
-                    }
-
-                    None => {
-                        self.push_line("{");
-                    }
+                if arms.is_empty() {
+                    return;
                 }
-            } else {
-                match condition {
-                    Some(condition) => {
-                        self.push_line(&format!("}} else if ({}) {{", condition));
+                let temp = "_match_value";
+                self.push_line(&format!(
+                    "auto {} = {};",
+                    temp,
+                    self.ir_expression(expression)
+                ));
+                for (index, arm) in arms.iter().enumerate() {
+                    let condition = self.match_condition(temp, &arm.pattern);
+                    if index == 0 {
+                        self.push_line(
+                            &condition
+                                .map(|c| format!("if ({}) {{", c))
+                                .unwrap_or_else(|| "{".to_string()),
+                        );
+                    } else {
+                        self.push_line(
+                            &condition
+                                .map(|c| format!("}} else if ({}) {{", c))
+                                .unwrap_or_else(|| "} else {".to_string()),
+                        );
                     }
-
-                    None => {
-                        self.push_line("} else {");
-                    }
+                    self.indent += 1;
+                    self.generate_ir_block_contents(&arm.body);
+                    self.indent -= 1;
                 }
+                self.push_line("}");
             }
-
-            self.indent += 1;
-
-            self.generate_block_contents(&arm.body);
-
-            self.indent -= 1;
-        }
-
-        self.push_line("}");
-    }
-
-    fn match_condition(&self, value: &str, pattern: &MatchPattern) -> Option<String> {
-        match pattern {
-            MatchPattern::Number(number) => Some(format!("{} == {}", value, number)),
-
-            MatchPattern::String(string) => {
-                Some(format!("{} == {}", value, self.cpp_string_literal(string)))
-            }
-
-            MatchPattern::Bool(value_bool) => Some(format!(
-                "{} == {}",
-                value,
-                if *value_bool { "true" } else { "false" }
-            )),
-
-            MatchPattern::Identifier(identifier) => {
-                Some(format!("{} == {}", value, self.cpp_identifier(identifier)))
-            }
-
-            MatchPattern::Wildcard => None,
         }
     }
 
-    // ============================================================
-    // Expressions
-    // ============================================================
-
-    fn expression(&self, expression: &Expr) -> String {
-        match expression {
-            Expr::Number(value, ..) => value.clone(),
-
-            Expr::String(value, ..) => self.cpp_string_literal(value),
-
-            Expr::Interpolation(parts, ..) => {
+    fn ir_expression(&self, expression: &IrExpr) -> String {
+        match &expression.kind {
+            IrExprKind::Number(value) => value.clone(),
+            IrExprKind::String(value) => self.cpp_string_literal(value),
+            IrExprKind::Interpolation(parts) => {
                 let mut output = String::from("([&]() { std::ostringstream _alaco_interp; ");
                 for (index, part) in parts.iter().enumerate() {
                     if index % 2 == 0 {
@@ -1397,149 +1239,119 @@ static std::string __builtin_http_post(const std::string& url, const std::string
                 output.push_str("return _alaco_interp.str(); }())");
                 output
             }
-
-            Expr::Bool(value, ..) => {
-                if *value {
-                    "true".to_string()
-                } else {
-                    "false".to_string()
-                }
-            }
-
-            Expr::Identifier(name, ..) => self.cpp_identifier(name),
-
-            Expr::StructLiteral { name, fields, .. } => {
-                let values = fields
+            IrExprKind::Bool(value) => value.to_string(),
+            IrExprKind::Identifier(name) => self.cpp_identifier(name),
+            IrExprKind::StructLiteral { name, fields } => format!(
+                "{}{{{}}}",
+                self.cpp_identifier(name),
+                fields
                     .iter()
-                    .map(|(_, value)| self.expression(value))
+                    .map(|(_, v)| self.ir_expression(v))
                     .collect::<Vec<_>>()
-                    .join(", ");
-
-                format!("{}{{{}}}", self.cpp_identifier(name), values)
-            }
-
-            Expr::Binary {
+                    .join(", ")
+            ),
+            IrExprKind::Binary {
                 left,
                 operator,
                 right,
-                ..
-            } => {
-                let left = self.expression(left);
-
-                let right = self.expression(right);
-
-                format!("({} {} {})", left, self.binary_operator(*operator), right)
-            }
-
-            Expr::Pipe { input, target, .. } => {
-                let input = self.expression(input);
-                match target.as_ref() {
-                    Expr::Call {
-                        callee, arguments, ..
-                    } => {
+            } => format!(
+                "({} {} {})",
+                self.ir_expression(left),
+                self.binary_operator(*operator),
+                self.ir_expression(right)
+            ),
+            IrExprKind::Pipe { input, target } => {
+                let input = self.ir_expression(input);
+                match target {
+                    IrPipeTarget::Call { callee, arguments } => {
                         let mut values = vec![input];
-                        values.extend(arguments.iter().map(|argument| self.expression(argument)));
-                        let arguments = values.join(", ");
-                        if let Expr::Member { object, member, .. } = callee.as_ref() {
-                            if let Expr::Identifier(alias, _) = object.as_ref() {
-                                if self.module_aliases.contains(alias) {
-                                    if alias == "io" {
-                                        return format!(
-                                            "{}({})",
-                                            self.cpp_identifier(member),
-                                            arguments
-                                        );
-                                    }
-                                    return format!(
-                                        "{}::{}({})",
-                                        self.cpp_identifier(alias),
-                                        self.cpp_identifier(member),
-                                        arguments
-                                    );
-                                }
-                            }
-                        }
-                        format!("{}({})", self.expression(callee), arguments)
+                        values.extend(arguments.iter().map(|a| self.ir_expression(a)));
+                        format!("{}({})", self.ir_callee(callee), values.join(", "))
                     }
-                    Expr::Member { object, member, .. } => {
-                        if let Expr::Identifier(alias, _) = object.as_ref() {
-                            if self.module_aliases.contains(alias) {
-                                if alias == "io" {
-                                    return format!("{}({})", self.cpp_identifier(member), input);
-                                }
-                                return format!(
-                                    "{}::{}({})",
-                                    self.cpp_identifier(alias),
-                                    self.cpp_identifier(member),
-                                    input
-                                );
-                            }
-                        }
-                        format!("{}({})", self.expression(target), input)
+                    IrPipeTarget::Callee(callee) => {
+                        format!("{}({})", self.ir_callee(callee), input)
                     }
-                    _ => format!("{}({})", self.expression(target), input),
-                }
-            }
-
-            Expr::Unary {
-                operator, operand, ..
-            } => {
-                let operand = self.expression(operand);
-
-                match operator {
-                    UnaryOp::Negate => {
-                        format!("(-{})", operand)
-                    }
-                    UnaryOp::Not => {
-                        format!("(!{})", operand)
+                    IrPipeTarget::Value(value) => {
+                        format!("{}({})", self.ir_expression(value), input)
                     }
                 }
             }
-
-            Expr::Call {
-                callee, arguments, ..
-            } => {
-                let arguments = arguments
+            IrExprKind::Unary { operator, operand } => match operator {
+                UnaryOp::Negate => format!("(-{})", self.ir_expression(operand)),
+                UnaryOp::Not => format!("(!{})", self.ir_expression(operand)),
+            },
+            IrExprKind::Call { callee, arguments } => {
+                let args = arguments
                     .iter()
-                    .map(|argument| self.expression(argument))
+                    .map(|a| self.ir_expression(a))
                     .collect::<Vec<_>>()
                     .join(", ");
-
-                if let Expr::Member { object, member, .. } = callee.as_ref() {
-                    if let Expr::Identifier(alias, _) = object.as_ref() {
-                        if self.module_aliases.contains(alias) {
-                            // std.io functions are emitted in the global
-                            // namespace to preserve unqualified calls.
-                            if alias == "io" {
-                                return format!("{}({})", self.cpp_identifier(member), arguments);
-                            }
-
-                            return format!(
-                                "{}::{}({})",
-                                self.cpp_identifier(alias),
-                                self.cpp_identifier(member),
-                                arguments
-                            );
-                        }
-                    }
-                }
-
-                format!("{}({})", self.expression(callee), arguments)
+                format!("{}({})", self.ir_callee(callee), args)
             }
-
-            Expr::Member { object, member, .. } => {
-                let object = self.expression(object);
-
-                format!("{}.{}", object, self.cpp_identifier(member))
-            }
-
-            Expr::Shell { command, .. } => {
+            IrExprKind::Member { object, member } => format!(
+                "{}.{}",
+                self.ir_expression(object),
+                self.cpp_identifier(member)
+            ),
+            IrExprKind::Shell { command } => {
                 format!("shell_async({})", self.cpp_string_literal(command))
             }
+            IrExprKind::Intrinsic { name, arguments } => {
+                let args = arguments
+                    .iter()
+                    .map(|a| self.ir_expression(a))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                match name.as_str() {
+                    "__builtin_print" | "__builtin_println" | "__builtin_eprint"
+                    | "__builtin_eprintln" => format!("{}({})", name, args),
+                    _ => format!("{}({})", self.cpp_identifier(name), args),
+                }
+            }
+        }
+    }
 
-            Expr::Intrinsic {
-                name, arguments, ..
-            } => self.generate_intrinsic_call(name, arguments),
+    fn ir_callee(&self, callee: &IrCallee) -> String {
+        match callee {
+            IrCallee::Identifier(name) => self.cpp_identifier(name),
+            IrCallee::Member { object, member } => {
+                if let IrCallee::Identifier(alias) = object.as_ref() {
+                    if self.module_aliases.contains(alias) {
+                        if alias == "io" {
+                            return self.cpp_identifier(member);
+                        }
+                        return format!(
+                            "{}::{}",
+                            self.cpp_identifier(alias),
+                            self.cpp_identifier(member)
+                        );
+                    }
+                }
+                format!("{}.{}", self.ir_callee(object), self.cpp_identifier(member))
+            }
+            IrCallee::Value(value) => self.ir_expression(value),
+        }
+    }
+
+    fn match_condition(&self, value: &str, pattern: &IrMatchPattern) -> Option<String> {
+        match pattern {
+            IrMatchPattern::Number(number) => Some(format!("{} == {}", value, number)),
+
+            IrMatchPattern::String(string) => {
+                Some(format!("{} == {}", value, self.cpp_string_literal(string)))
+            }
+
+            IrMatchPattern::Bool(value_bool) => Some(format!(
+                "{} == {}",
+                value,
+                if *value_bool { "true" } else { "false" }
+            )),
+
+            IrMatchPattern::Identifier(identifier) => {
+                Some(format!("{} == {}", value, self.cpp_identifier(identifier)))
+            }
+
+            IrMatchPattern::Wildcard => None,
         }
     }
 

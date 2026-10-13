@@ -58,13 +58,13 @@ impl Compiler {
     pub fn compile(source: &str, filename: &str) -> Result<String> {
         let unit = Self::parse_unit(source, filename)?;
 
-        Analyzer::new(&unit.modules)
+        let ir = Analyzer::new(&unit.modules)
             .analyze(&unit.program)
             .map_err(|error| Self::report(error, filename, source))?;
 
         let generator = CppCodegen::new();
 
-        Ok(generator.generate_with_modules(&unit.program, &unit.modules))
+        Ok(generator.generate_with_modules(&ir, &unit.modules))
     }
 
     /// Build an Alaco source file into a native executable.
@@ -219,6 +219,7 @@ impl Compiler {
                 },
                 alias,
                 program: module_program,
+                ir: None,
                 imported_symbols: import.symbols.clone(),
             });
         }
@@ -275,12 +276,25 @@ impl Compiler {
             &mut HashSet::new(),
         )?;
 
+        // Lower each module with its own expression-type table. Source spans
+        // are local to a file, so sharing the main program's table would let
+        // unrelated expressions overwrite one another.
+        for index in 0..modules.len() {
+            let module_program = modules[index].program.clone();
+            let module_ir = Analyzer::new(&modules)
+                .analyze_module(&module_program)
+                .map_err(|error| Self::report(error, &modules[index].name, ""))?;
+            modules[index].ir = Some(module_ir);
+        }
+
         Ok(CompilationUnit { program, modules })
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::analyzer::Analyzer;
+
     use super::Compiler;
 
     #[test]
@@ -890,6 +904,60 @@ struct Person {
         .expect_err("pipe input types must be checked against function parameters");
 
         assert!(format!("{error:?}").contains("expected String, found Int"));
+    }
+
+    #[test]
+    fn undefined_variable_diagnostics_suggest_close_names() {
+        let error = Compiler::check(
+            "fn main() { let message = \"hello\"; println(mesage); }",
+            "variable_suggestion.aco",
+        )
+        .expect_err("misspelled variables should be rejected");
+
+        let rendered = format!("{error:?}");
+        assert!(rendered.contains("did you mean 'message'?"), "{rendered}");
+    }
+
+    #[test]
+    fn match_identifier_patterns_must_resolve_and_match_types() {
+        let unknown = Compiler::check(
+            "fn main() { let value = 1; match value { missing => { } } }",
+            "unknown_match_pattern.aco",
+        )
+        .expect_err("unknown match pattern identifiers must not reach C++ generation");
+        assert!(
+            format!("{unknown:?}").contains("undefined variable `missing`"),
+            "{unknown:?}"
+        );
+
+        let mismatched = Compiler::check(
+            "fn main() { let value = 1; let text = \"one\"; match value { text => { } } }",
+            "mismatched_match_pattern.aco",
+        )
+        .expect_err("match patterns must be type-compatible with the matched expression");
+        assert!(format!("{mismatched:?}").contains("matched expression has type Int"));
+    }
+
+    #[test]
+    fn semantic_analysis_produces_typed_ir_signatures() {
+        let program = Compiler::parse(
+            "fn greet(name: String) -> String { return name; } fn main() { let value = greet(\"Alaco\"); }",
+            "typed_ir.aco",
+        )
+        .expect("source should parse");
+        let ir = Analyzer::new(&[])
+            .analyze(&program)
+            .expect("valid source should lower to IR");
+
+        let greet = ir.function("greet").expect("IR should contain greet");
+        assert_eq!(greet.parameters.len(), 1);
+        assert_eq!(greet.parameters[0].name, "name");
+        assert_eq!(greet.parameters[0].ty, crate::ast::Type::String);
+        assert_eq!(greet.return_type, crate::ast::Type::String);
+        let crate::ir::IrStmt::Return(Some(return_value), _) = &greet.body.statements[0] else {
+            panic!("IR should contain the function's return statement");
+        };
+        assert_eq!(return_value.ty, crate::ast::Type::String);
     }
 
     #[test]

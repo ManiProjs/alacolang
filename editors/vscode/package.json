@@ -5,10 +5,18 @@
   "version": "0.1.0",
   "publisher": "alaco-language",
   "license": "MIT",
-  "engines": { "vscode": "^1.85.0" },
-  "categories": ["Programming Languages", "Snippets"],
+  "repository": "https://github.com/ManiProjs/alaco.git",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Snippets"
+  ],
   "main": "./extension.js",
-  "activationEvents": ["onLanguage:alaco"],
+  "activationEvents": [
+    "onLanguage:alaco"
+  ],
   "contributes": {
     "configuration": {
       "title": "Alaco",
@@ -20,25 +28,54 @@
         }
       }
     },
-    "languages": [{
-      "id": "alaco",
-      "aliases": ["Alaco", "alaco"],
-      "extensions": [".aco"],
-      "configuration": "./language-configuration.json"
-    }],
-    "grammars": [{
-      "language": "alaco",
-      "scopeName": "source.alaco",
-      "path": "./syntaxes/alaco.tmLanguage.json"
-    }],
-    "snippets": [{ "language": "alaco", "path": "./snippets/alaco.json" }],
+    "languages": [
+      {
+        "id": "alaco",
+        "aliases": [
+          "Alaco",
+          "alaco"
+        ],
+        "extensions": [
+          ".aco"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "alaco",
+        "scopeName": "source.alaco",
+        "path": "./syntaxes/alaco.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "alaco",
+        "path": "./snippets/alaco.json"
+      }
+    ],
     "commands": [
-      { "command": "alaco.check", "title": "Alaco: Check Current File" },
-      { "command": "alaco.build", "title": "Alaco: Build Current File" },
-      { "command": "alaco.run", "title": "Alaco: Run Current File" }
+      {
+        "command": "alaco.check",
+        "title": "Alaco: Check Current File"
+      },
+      {
+        "command": "alaco.build",
+        "title": "Alaco: Build Current File"
+      },
+      {
+        "command": "alaco.run",
+        "title": "Alaco: Run Current File"
+      }
     ],
     "menus": {
-      "editor/title": [{ "command": "alaco.run", "when": "resourceExtname == .aco", "group": "navigation@99" }]
+      "editor/title": [
+        {
+          "command": "alaco.run",
+          "when": "resourceExtname == .aco",
+          "group": "navigation@99"
+        }
+      ]
     }
   }
 }

@@ -5,7 +5,7 @@ use std::{
 
 use miette::{NamedSource, Report, Result};
 
-use crate::{ast::Program, error::AlacoError, lexer::Lexer, parser::Parser};
+use crate::{ast::Program, error::AlacoError, ir::IrProgram, lexer::Lexer, parser::Parser};
 
 const STDLIB_ENV: &str = "ALACO_STDLIB_DIR";
 
@@ -14,6 +14,7 @@ pub struct LoadedModule {
     pub name: String,
     pub alias: String,
     pub program: Program,
+    pub ir: Option<IrProgram>,
     pub imported_symbols: Vec<String>,
 }
 
@@ -117,6 +118,7 @@ impl Stdlib {
             name,
             alias,
             program,
+            ir: None,
             imported_symbols: Vec::new(),
         })
     }
