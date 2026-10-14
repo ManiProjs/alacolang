@@ -37,3 +37,19 @@ fn is_inside_rectangle(x: Int, y: Int, left: Int, top: Int, right: Int, bottom: 
     }
     return y <= bottom;
 }
+
+fn rectangle_diagonal_squared(width: Int, height: Int) -> Int {
+    return width * width + height * height;
+}
+
+fn triangle_area(base: Int, height: Int) -> Int {
+    return (base * height) / 2;
+}
+
+fn circle_area(radius: Float) -> Float {
+    return 3.141592653589793 * radius * radius;
+}
+
+fn circle_circumference(radius: Float) -> Float {
+    return 2.0 * 3.141592653589793 * radius;
+}

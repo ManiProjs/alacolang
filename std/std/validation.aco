@@ -32,3 +32,15 @@ fn is_non_zero(value: Int) -> Bool {
 fn is_valid_port(value: Int) -> Bool {
     return value >= 1 and value <= 65535;
 }
+
+fn is_valid_percentage(value: Int) -> Bool {
+    return value >= 0 and value <= 100;
+}
+
+fn is_valid_year(value: Int) -> Bool {
+    return value >= 1 and value <= 9999;
+}
+
+fn is_valid_ipv4_octet(value: Int) -> Bool {
+    return value >= 0 and value <= 255;
+}

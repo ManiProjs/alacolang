@@ -160,3 +160,27 @@ fn is_power_of_two(value: Int) -> Bool {
     }
     return remaining == 1;
 }
+
+// Return false for a zero divisor instead of evaluating remainder by zero.
+fn is_multiple_of(value: Int, divisor: Int) -> Bool {
+    if divisor == 0 {
+        return false;
+    }
+    return value % divisor == 0;
+}
+
+// Return the first multiple of `step` greater than or equal to `value`.
+// A non-positive step returns `value` unchanged.
+fn round_up_to_multiple(value: Int, step: Int) -> Int {
+    if step <= 0 {
+        return value;
+    }
+    let remainder = value % step;
+    if remainder == 0 {
+        return value;
+    }
+    if value >= 0 {
+        return value + step - remainder;
+    }
+    return value - remainder;
+}

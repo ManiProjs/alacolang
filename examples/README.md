@@ -22,6 +22,7 @@ alaco check examples/type_safety.aco
 | `timed_variables.aco` | Variables whose values are automatically cleared after a duration |
 | `math_toolkit.aco` | Integer math, primality, statistics, and port validation |
 | `geometry_report.aco` | Geometry calculations, statistics, and unit conversion |
+| `stdlib_plus.aco` | Additional string, math, geometry, unit, and validation helpers |
 
 ## Standard library
 

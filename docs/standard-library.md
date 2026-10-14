@@ -46,6 +46,8 @@ Import with `import std.math;`.
 | `ceil_div(value, divisor)` | Integer division rounded upward; returns `0` for a zero divisor. |
 | `triangular(value)` | Sum from 1 through `value`; returns `-1` for negative or out-of-range inputs. |
 | `is_power_of_two(value)` | True for positive powers of two. |
+| `is_multiple_of(value, divisor)` | Test divisibility; returns false when the divisor is zero. |
+| `round_up_to_multiple(value, step)` | Round upward to a multiple; non-positive steps leave the value unchanged. |
 
 ## `std.string` — string helpers
 
@@ -58,6 +60,10 @@ Import with `import std.string;`.
 | `repeat_string(value, count)` | Repeat a string `count` times; a non-positive count performs no iterations. |
 | `surround(value, wrapper)` | Add the wrapper string before and after a value. |
 | `join3(first, separator, second, third)` | Join three strings with the same separator. |
+| `is_not_empty(value)` | Inverse of `is_empty`; whitespace still counts as content. |
+| `concat3(first, second, third)` | Concatenate three strings. |
+| `join4(first, separator, second, third, fourth)` | Join four strings with a shared separator. |
+| `prefix_suffix(value, prefix, suffix)` | Add different strings before and after a value. |
 
 ## `std.geometry` — integer geometry
 
@@ -84,6 +90,9 @@ Import with `import std.stats;`.
 | `median3(a, b, c)` | Return the middle of three integers without sorting. |
 | `sum4(a, b, c, d)` / `average4(a, b, c, d)` | Sum or integer-average four values. |
 | `percentage(value, total)` | Return the integer percentage; returns `0` when total is zero. |
+| `sum2(a, b)` | Sum two integers. |
+| `sum5(a, b, c, d, e)` / `average5(a, b, c, d, e)` | Sum or integer-average five integers. |
+| `range3(a, b, c)` | Difference between the maximum and minimum of three values. |
 
 ## `std.units` — unit conversions
 
@@ -99,6 +108,11 @@ Import with `import std.units;`. All functions accept and return `Float`.
 | `pounds_to_kilograms(value)` | Pounds → kilograms |
 | `meters_to_feet(value)` / `feet_to_meters(value)` | Meters ↔ feet |
 | `liters_to_us_gallons(value)` / `us_gallons_to_liters(value)` | Liters ↔ US gallons |
+| `meters_to_kilometers(value)` / `kilometers_to_meters(value)` | Meters ↔ kilometers |
+| `centimeters_to_inches(value)` / `inches_to_centimeters(value)` | Centimeters ↔ inches |
+| `seconds_to_minutes(value)` / `minutes_to_seconds(value)` | Seconds ↔ minutes |
+| `hours_to_seconds(value)` | Hours → seconds |
+| `bytes_to_kibibytes(value)` / `kibibytes_to_bytes(value)` | Bytes ↔ KiB, using 1024 bytes per KiB; integer division truncates. |
 
 ## `std.validation` — simple predicates
 
@@ -112,6 +126,9 @@ Import with `import std.validation;`.
 | `is_non_negative(value)` | True when an integer is zero or greater. |
 | `is_negative(value)` / `is_zero(value)` / `is_non_zero(value)` | Sign and zero checks. |
 | `is_valid_port(value)` | True for TCP/UDP port numbers from 1 through 65535. |
+| `is_valid_percentage(value)` | True for an integer from 0 through 100. |
+| `is_valid_year(value)` | True for a year number from 1 through 9999. |
+| `is_valid_ipv4_octet(value)` | True for an IPv4 address component from 0 through 255. |
 
 ## `std.fs` — filesystem operations
 

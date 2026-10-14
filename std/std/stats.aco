@@ -69,3 +69,19 @@ fn percentage(value: Int, total: Int) -> Int {
     }
     return (value * 100) / total;
 }
+
+fn sum2(a: Int, b: Int) -> Int {
+    return a + b;
+}
+
+fn sum5(a: Int, b: Int, c: Int, d: Int, e: Int) -> Int {
+    return a + b + c + d + e;
+}
+
+fn average5(a: Int, b: Int, c: Int, d: Int, e: Int) -> Int {
+    return sum5(a, b, c, d, e) / 5;
+}
+
+fn range3(a: Int, b: Int, c: Int) -> Int {
+    return max3(a, b, c) - min3(a, b, c);
+}

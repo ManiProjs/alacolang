@@ -21,3 +21,19 @@ fn surround(value: String, wrapper: String) -> String {
 fn join3(first: String, separator: String, second: String, third: String) -> String {
     return first + separator + second + separator + third;
 }
+
+fn is_not_empty(value: String) -> Bool {
+    return value != "";
+}
+
+fn concat3(first: String, second: String, third: String) -> String {
+    return first + second + third;
+}
+
+fn join4(first: String, separator: String, second: String, third: String, fourth: String) -> String {
+    return first + separator + second + separator + third + separator + fourth;
+}
+
+fn prefix_suffix(value: String, prefix: String, suffix: String) -> String {
+    return prefix + value + suffix;
+}

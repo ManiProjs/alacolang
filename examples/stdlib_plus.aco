@@ -1,0 +1,28 @@
+import std.geometry;
+import std.math;
+import std.stats;
+import std.string;
+import std.units;
+import std.validation;
+
+fn main() {
+    let rounded = math.round_up_to_multiple(17, 8);
+    let divisible = math.is_multiple_of(42, 7);
+    let greeting = string.prefix_suffix("Alaco", "Hello, ", "!");
+    let joined = string.join4("Rust", " + ", "C++", "Alaco", "you");
+    let spread = stats.range3(12, 4, 19);
+    let area = geometry.circle_area(2.0);
+    let seconds = units.hours_to_seconds(1.5);
+    let kibibytes = units.bytes_to_kibibytes(4096);
+    let valid_octet = validation.is_valid_ipv4_octet(255);
+
+    println("Round 17 up to a multiple of 8: ${rounded}");
+    println("42 divisible by 7: ${divisible}");
+    println(greeting);
+    println(joined);
+    println("Range of 12, 4, 19: ${spread}");
+    println("Area of radius-2 circle: ${area}");
+    println("1.5 hours in seconds: ${seconds}");
+    println("4096 bytes in KiB: ${kibibytes}");
+    println("255 is a valid IPv4 octet: ${valid_octet}");
+}
