@@ -19,6 +19,9 @@ alaco check examples/type_safety.aco
 | `shell.aco` | Running a host shell command and printing its result |
 | `type_safety.aco` | Typed structs and passing a struct to a function |
 | `previous_when.aco` | Previous variable values and edge-triggered `when` blocks |
+| `timed_variables.aco` | Variables whose values are automatically cleared after a duration |
+| `math_toolkit.aco` | Integer math, primality, statistics, and port validation |
+| `geometry_report.aco` | Geometry calculations, statistics, and unit conversion |
 
 ## Standard library
 
@@ -28,6 +31,7 @@ alaco check examples/type_safety.aco
 | `runtime_stdlib.aco` | Runtime filesystem, environment, and path operations; creates and removes temporary test files/directories in the working directory |
 | `json_demo.aco` | JSON validation, top-level typed lookups, and fallback values |
 | `toml_demo.aco` | Validation and reading simple scalar TOML settings |
+| `config_app.aco` | Reading JSON/TOML configuration values and checking environment setup |
 | `http_demo.aco` | HTTPS GET from `example.com`; requires network access |
 
 ## Modules and packages

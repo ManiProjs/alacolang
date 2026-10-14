@@ -1,0 +1,22 @@
+import std.math;
+import std.stats;
+import std.validation;
+
+fn main() {
+    let number = 28;
+    println("Number: ${number}");
+    let prime = math.is_prime(number);
+    let gcd_value = math.gcd(28, 42);
+    let lcm_value = math.lcm(6, 8);
+    let factorial_value = math.factorial(5);
+    let median = stats.median3(9, 2, 5);
+    let progress = stats.percentage(3, 4);
+    let port_valid = validation.is_valid_port(8080);
+    println("Prime: ${prime}");
+    println("GCD(28, 42): ${gcd_value}");
+    println("LCM(6, 8): ${lcm_value}");
+    println("5 factorial: ${factorial_value}");
+    println("Median of 9, 2, 5: ${median}");
+    println("Progress percentage: ${progress}");
+    println("Port 8080 valid: ${port_valid}");
+}

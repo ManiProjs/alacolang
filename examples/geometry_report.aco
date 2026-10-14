@@ -1,0 +1,20 @@
+import std.geometry;
+import std.stats;
+import std.units;
+
+fn main() {
+    let width = 12;
+    let height = 7;
+    let area = geometry.rectangle_area(width, height);
+    let perimeter = geometry.rectangle_perimeter(width, height);
+    let distance = geometry.squared_distance(1, 2, 4, 6);
+    let walk_miles = units.kilometers_to_miles(5.0);
+    let average = stats.average3(10, 20, 30);
+
+    println("Rectangle: ${width} x ${height}");
+    println("Area: ${area}");
+    println("Perimeter: ${perimeter}");
+    println("Squared distance: ${distance}");
+    println("Five kilometers in miles: ${walk_miles}");
+    println("Average of 10, 20, 30: ${average}");
+}

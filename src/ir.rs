@@ -233,6 +233,7 @@ pub enum IrStmt {
         name: String,
         mutable: bool,
         ty: Type,
+        lifetime_ms: Option<u64>,
         value: IrExpr,
         span: Span,
     },
@@ -446,11 +447,13 @@ fn lower_stmt(stmt: &ast::Stmt, types: &ExpressionTypes, ids: &ExpressionIds) ->
             name,
             mutable,
             ty,
+            lifetime_ms,
             value,
             span,
         } => IrStmt::Let {
             name: name.clone(),
             mutable: *mutable,
+            lifetime_ms: *lifetime_ms,
             ty: ty
                 .clone()
                 .unwrap_or_else(|| expression_type(value, types, ids)),

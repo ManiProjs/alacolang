@@ -93,6 +93,7 @@ pub enum Stmt {
         name: String,
         mutable: bool,
         ty: Option<Type>,
+        lifetime_ms: Option<u64>,
         value: Expr,
         span: Span,
     },

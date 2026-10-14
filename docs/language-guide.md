@@ -86,6 +86,17 @@ score = 2;
 
 `when condition { ... }` checks the condition immediately when registered and after each subsequent statement in the same lexical block, running the block whenever the condition is true at one of those checkpoints. It is synchronous—not a background task. Put the `when` after the variables it observes have been declared. A watcher declared inside a block is scoped to that block.
 
+### Timed variables
+
+Give a local variable a deadline with `for` between its name and optional type:
+
+```alaco
+let cache for 20 seconds = "temporary";
+let mut session for 1 minute: String = "active";
+```
+
+Supported units are `ms`/`milliseconds`, `s`/`seconds`, and `m`/`minutes`. When the deadline arrives, Alaco clears the stored value automatically. Reading, assigning, or using `previous` after expiry raises a runtime error instead of silently recreating the value. Timed variables currently support `Int`, `Float`, `Bool`, and `String`. The deadline is fixed at declaration; reassignment does not renew it. The compiler uses a small timer thread per timed variable, so use this for short-lived values rather than thousands of tiny-lived locals.
+
 Use `==` and `!=` for equality; a condition must evaluate to `Bool`, so numeric values are not implicitly treated as true or false. `+` adds compatible numeric values and concatenates strings. When in doubt, keep expressions simple and use parentheses to make grouping clear.
 
 ### Pipe expressions

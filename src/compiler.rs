@@ -1218,6 +1218,42 @@ struct Person {
     }
 
     #[test]
+    fn timed_variables_clear_their_value_and_reject_access_after_expiry() {
+        let source = r#"
+            import std.timing;
+            fn ordinary() {
+                let cache = "ordinary";
+                println(cache);
+            }
+            fn main() {
+                ordinary();
+                let mut cache for 100 ms = "temporary";
+                println(cache);
+                cache = "updated";
+                println(previous cache);
+                timing.sleep_ms(180);
+                println(cache);
+            }
+        "#;
+        let output_path =
+            std::env::temp_dir().join(format!("alaco_lifetime_{}", std::process::id()));
+        Compiler::build(source, "timed_variables_test.aco", &output_path)
+            .expect("timed variable source should compile");
+        let output = std::process::Command::new(&output_path)
+            .output()
+            .expect("generated executable should run");
+        let _ = std::fs::remove_file(&output_path);
+        assert!(!output.status.success(), "access after expiry must fail");
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "ordinary\ntemporary\ntemporary\n"
+        );
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("Alaco variable lifetime expired")
+        );
+    }
+
+    #[test]
     fn json_rejects_non_json_whitespace() {
         let source = format!(
             "import std.json; fn main() {{ println(json.is_valid(\"{}\")); }}",

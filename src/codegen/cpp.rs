@@ -24,6 +24,7 @@ struct RuntimeRequirements {
     toml: bool,
     http: bool,
     time: bool,
+    lifetime: bool,
 }
 
 impl RuntimeRequirements {
@@ -41,6 +42,7 @@ impl RuntimeRequirements {
             || self.toml
             || self.http
             || self.time
+            || self.lifetime
     }
 }
 
@@ -48,6 +50,7 @@ pub struct CppCodegen {
     output: String,
     indent: usize,
     module_aliases: HashSet<String>,
+    lifetime_variables: HashSet<String>,
 }
 
 impl CppCodegen {
@@ -56,6 +59,7 @@ impl CppCodegen {
             output: String::new(),
             indent: 0,
             module_aliases: HashSet::new(),
+            lifetime_variables: HashSet::new(),
         }
     }
 
@@ -162,6 +166,37 @@ impl CppCodegen {
         self.output
     }
 
+    fn collect_lifetime_names(block: &crate::ir::IrBlock, names: &mut HashSet<String>) {
+        for statement in &block.statements {
+            match statement {
+                IrStmt::Let {
+                    name,
+                    lifetime_ms: Some(_),
+                    ..
+                } => {
+                    names.insert(name.clone());
+                }
+                IrStmt::If {
+                    then_block,
+                    else_block,
+                    ..
+                } => {
+                    Self::collect_lifetime_names(then_block, names);
+                    if let Some(block) = else_block {
+                        Self::collect_lifetime_names(block, names);
+                    }
+                }
+                IrStmt::Loop { body, .. } => Self::collect_lifetime_names(body, names),
+                IrStmt::Match { arms, .. } => {
+                    for arm in arms {
+                        Self::collect_lifetime_names(&arm.body, names);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
     // ============================================================
     // Runtime dependency detection
     // ============================================================
@@ -240,7 +275,15 @@ impl CppCodegen {
         requirements: &mut RuntimeRequirements,
     ) {
         match statement {
-            IrStmt::Let { ty, value, .. } => {
+            IrStmt::Let {
+                ty,
+                value,
+                lifetime_ms,
+                ..
+            } => {
+                if lifetime_ms.is_some() {
+                    requirements.lifetime = true;
+                }
                 self.scan_type_for_runtime(ty, requirements);
                 self.scan_expr_for_runtime(value, requirements);
             }
@@ -503,6 +546,16 @@ impl CppCodegen {
             self.push_line("#include <thread>");
         }
 
+        if requirements.lifetime {
+            self.push_line("#include <chrono>");
+            self.push_line("#include <memory>");
+            self.push_line("#include <mutex>");
+            self.push_line("#include <optional>");
+            self.push_line("#include <stdexcept>");
+            self.push_line("#include <thread>");
+            self.push_line("#include <utility>");
+        }
+
         self.push_line("");
     }
 
@@ -517,6 +570,23 @@ impl CppCodegen {
 
         self.push_line("// Alaco runtime");
         self.push_line("");
+
+        if requirements.lifetime {
+            self.push_line("template <typename T> class __AlacoLifetime {");
+            self.push_line("    struct State { std::mutex mutex; std::optional<T> value; std::optional<T> previous; };");
+            self.push_line("    std::shared_ptr<State> state;");
+            self.push_line("public:");
+            self.push_line("    __AlacoLifetime(T initial, long long milliseconds) : state(std::make_shared<State>()) {");
+            self.push_line("        state->value = std::move(initial);");
+            self.push_line("        auto shared = state;");
+            self.push_line("        std::thread([shared, milliseconds] { std::this_thread::sleep_for(std::chrono::milliseconds(milliseconds)); std::lock_guard<std::mutex> lock(shared->mutex); shared->value.reset(); shared->previous.reset(); }).detach();");
+            self.push_line("    }");
+            self.push_line("    T get() const { std::lock_guard<std::mutex> lock(state->mutex); if (!state->value) throw std::runtime_error(\"Alaco variable lifetime expired\"); return *state->value; }");
+            self.push_line("    T previous() const { std::lock_guard<std::mutex> lock(state->mutex); if (!state->value) throw std::runtime_error(\"Alaco variable lifetime expired\"); return state->previous ? *state->previous : *state->value; }");
+            self.push_line("    void set(T next) { std::lock_guard<std::mutex> lock(state->mutex); if (!state->value) throw std::runtime_error(\"Alaco variable lifetime expired\"); state->previous = *state->value; state->value = std::move(next); }");
+            self.push_line("};");
+            self.push_line("");
+        }
 
         if requirements.needs_io() {
             self.generate_io_runtime(requirements);
@@ -1063,6 +1133,8 @@ static std::string __builtin_http_post(const std::string& url, const std::string
     }
 
     fn generate_ir_function(&mut self, function: &IrFunction) {
+        let outer_lifetimes = std::mem::take(&mut self.lifetime_variables);
+        Self::collect_lifetime_names(&function.body, &mut self.lifetime_variables);
         let return_type = if function.name == "main" {
             "int".to_string()
         } else {
@@ -1099,6 +1171,7 @@ static std::string __builtin_http_post(const std::string& url, const std::string
         self.indent -= 1;
         self.push_line("}");
         self.push_line("");
+        self.lifetime_variables = outer_lifetimes;
     }
 
     fn generate_ir_block_contents(&mut self, block: &crate::ir::IrBlock) {
@@ -1110,8 +1183,22 @@ static std::string __builtin_http_post(const std::string& url, const std::string
     fn generate_ir_statement(&mut self, statement: &IrStmt) {
         match statement {
             IrStmt::Let {
-                name, ty, value, ..
+                name,
+                ty,
+                value,
+                lifetime_ms,
+                ..
             } => {
+                if let Some(milliseconds) = lifetime_ms {
+                    self.push_line(&format!(
+                        "__AlacoLifetime<{}> {}({}, {}LL);",
+                        self.type_name(ty),
+                        self.cpp_identifier(name),
+                        self.ir_expression(value),
+                        milliseconds
+                    ));
+                    return;
+                }
                 self.push_line(&format!(
                     "{} {} = {};",
                     self.type_name(ty),
@@ -1254,15 +1341,20 @@ static std::string __builtin_http_post(const std::string& url, const std::string
                             self.cpp_string_literal(part)
                         ));
                     } else {
-                        output
-                            .push_str(&format!("_alaco_interp << {}; ", self.cpp_identifier(part)));
+                        output.push_str(&format!(
+                            "_alaco_interp << {}; ",
+                            self.expression_identifier(part)
+                        ));
                     }
                 }
                 output.push_str("return _alaco_interp.str(); }())");
                 output
             }
             IrExprKind::Bool(value) => value.to_string(),
-            IrExprKind::Identifier(name) => self.cpp_identifier(name),
+            IrExprKind::Identifier(name) => self.expression_identifier(name),
+            IrExprKind::Previous(name) if self.lifetime_variables.contains(name) => {
+                format!("{}.previous()", self.cpp_identifier(name))
+            }
             IrExprKind::Previous(name) => self.previous_identifier(name),
             IrExprKind::StructLiteral { name, fields } => format!(
                 "{}{{{}}}",
@@ -1287,6 +1379,27 @@ static std::string __builtin_http_post(const std::string& url, const std::string
                         | BinaryOp::DivideAssign
                 ) {
                     if let IrExprKind::Identifier(name) = &left.kind {
+                        if self.lifetime_variables.contains(name) {
+                            let right = self.ir_expression(right);
+                            let value = if *operator == BinaryOp::Assign {
+                                right
+                            } else {
+                                let base_operator = match operator {
+                                    BinaryOp::AddAssign => "+",
+                                    BinaryOp::SubtractAssign => "-",
+                                    BinaryOp::MultiplyAssign => "*",
+                                    BinaryOp::DivideAssign => "/",
+                                    _ => "=",
+                                };
+                                format!(
+                                    "({}.get() {} {})",
+                                    self.cpp_identifier(name),
+                                    base_operator,
+                                    right
+                                )
+                            };
+                            return format!("{}.set({})", self.cpp_identifier(name), value);
+                        }
                         return format!(
                             "(({} = {}), ({} {} {}))",
                             self.previous_identifier(name),
@@ -1531,6 +1644,14 @@ static std::string __builtin_http_post(const std::string& url, const std::string
 
     fn previous_identifier(&self, name: &str) -> String {
         format!("_alaco_previous_{}", self.cpp_identifier(name))
+    }
+
+    fn expression_identifier(&self, name: &str) -> String {
+        if self.lifetime_variables.contains(name) {
+            format!("{}.get()", self.cpp_identifier(name))
+        } else {
+            self.cpp_identifier(name)
+        }
     }
 
     // ============================================================

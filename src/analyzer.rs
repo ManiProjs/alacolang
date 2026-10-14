@@ -677,6 +677,7 @@ impl<'a> Analyzer<'a> {
                 name,
                 mutable,
                 ty,
+                lifetime_ms,
                 value,
                 span,
             } => {
@@ -703,6 +704,18 @@ impl<'a> Analyzer<'a> {
                 }
 
                 let final_type = ty.clone().unwrap_or(value_type);
+
+                if lifetime_ms.is_some()
+                    && !matches!(
+                        final_type,
+                        Type::Int | Type::Float | Type::Bool | Type::String
+                    )
+                {
+                    return Err(self.error(
+                        "timed variables currently support Int, Float, Bool, and String values",
+                        Some(*span),
+                    ));
+                }
 
                 let scope = scopes.last_mut().expect("analyzer scope stack is empty");
 

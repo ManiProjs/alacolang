@@ -1,0 +1,13 @@
+import std.timing;
+
+fn main() {
+    let mut session for 2 minutes = "active";
+    println(session);
+
+    session = "refreshed";
+    println(previous session); // active
+    println(session);          // refreshed
+
+    let cache for 20 seconds = "temporary cache entry";
+    println(cache);
+}

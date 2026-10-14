@@ -302,6 +302,32 @@ impl Parser {
 
         let name = self.consume_identifier("expected variable name after 'let'")?;
 
+        let lifetime_ms = if self.matches(&TokenKind::For) {
+            let amount = match self.advance().kind {
+                TokenKind::Integer(value) if value > 0 => value as u64,
+                _ => return Err(self.error("expected a positive lifetime duration after 'for'")),
+            };
+            let unit =
+                self.consume_identifier("expected lifetime unit (ms, seconds, or minutes)")?;
+            let multiplier = match unit.as_str() {
+                "ms" | "milliseconds" => 1_u64,
+                "s" | "second" | "seconds" => 1_000,
+                "m" | "minute" | "minutes" => 60_000,
+                _ => {
+                    return Err(
+                        self.error("unsupported lifetime unit; use ms, seconds, or minutes")
+                    );
+                }
+            };
+            Some(
+                amount
+                    .checked_mul(multiplier)
+                    .ok_or_else(|| self.error("lifetime duration is too large"))?,
+            )
+        } else {
+            None
+        };
+
         if self.check(&TokenKind::LeftBrace) {
             self.advance();
             self.skip_newlines();
@@ -359,6 +385,7 @@ impl Parser {
             name,
             mutable,
             ty,
+            lifetime_ms,
             value,
             span: Span { start, end },
         })

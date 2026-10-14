@@ -1,0 +1,36 @@
+import std.env;
+import std.json;
+import std.toml;
+import std.validation;
+
+fn main() {
+    let json_config = "{\"app\":\"Alaco\",\"port\":8080,\"debug\":true}";
+    if json.is_valid(json_config) {
+        let app_name = json.get_string(json_config, "app", "Unnamed");
+        let port = json.get_int(json_config, "port", 0);
+        let debug = json.get_bool(json_config, "debug", false);
+        println("Starting ${app_name}");
+        if validation.is_valid_port(port) {
+            println("Listening port: ${port}");
+        } else {
+            println("Invalid port in configuration");
+        }
+        println("Debug enabled: ${debug}");
+    } else {
+        println("Configuration is not valid JSON");
+    }
+
+    let toml_config = "app_name = \"Alaco CLI\"\nport = 4040\ndebug = false\n";
+    if toml.is_valid(toml_config) {
+        let toml_app = toml.get_string(toml_config, "app_name", "Unnamed");
+        let toml_port = toml.get_int(toml_config, "port", 8080);
+        println("TOML app: ${toml_app}");
+        println("TOML port: ${toml_port}");
+    }
+
+    if env.has("HOME") {
+        println("HOME is configured");
+    } else {
+        println("HOME is not set");
+    }
+}
