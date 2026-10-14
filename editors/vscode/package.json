@@ -1,8 +1,8 @@
 {
   "name": "alaco-language",
   "displayName": "Alaco Language Support",
-  "description": "Syntax highlighting, snippets, and compiler commands for the Alaco language.",
-  "version": "0.1.0",
+  "description": "Alaco language support with syntax highlighting, compiler commands, and a built-in LSP client.",
+  "version": "0.2.0",
   "publisher": "alaco-language",
   "license": "MIT",
   "repository": "https://github.com/ManiProjs/alaco.git",
@@ -24,7 +24,12 @@
         "alaco.executable": {
           "type": "string",
           "default": "alaco",
-          "description": "Path to the Alaco compiler executable."
+          "description": "Path to the Alaco executable, including its lsp subcommand."
+        },
+        "alaco.languageServer.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Start the Alaco language server for editor intelligence."
         }
       }
     },
@@ -77,5 +82,8 @@
         }
       ]
     }
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
   }
 }

@@ -18,3 +18,13 @@ endfunction
 command! AlacoCheck call <SID>AlacoRunCommand('check')
 command! AlacoBuild call <SID>AlacoRunCommand('build')
 command! AlacoRun call <SID>AlacoRunCommand('run')
+
+" Optional vim-lsp integration. Install prabirshrestha/vim-lsp to enable it.
+if exists('*lsp#register_server')
+  call lsp#register_server({
+        \ 'name': 'alaco',
+        \ 'cmd': {server_info -> [get(g:, 'alaco_executable', 'alaco'), 'lsp']},
+        \ 'allowlist': ['alaco'],
+        \ 'initialization_options': {},
+        \ })
+endif

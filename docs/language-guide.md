@@ -71,6 +71,21 @@ The implemented binary operators include arithmetic (`+`, `-`, `*`, `/`, `%`), c
 
 Equality is defined for `Int`, `Float`, `Bool`, and `String`; comparing structs, shell values, or `Void` is rejected. `%` currently requires two `Int` operands.
 
+### Remembering values and reacting with `when`
+
+`previous name` reads the value of a local variable immediately before its most recent assignment. Its initial previous value is the value established by the variable's declaration (or the function argument's initial value). It currently supports `Int`, `Float`, `Bool`, and `String` locals/parameters.
+
+```alaco
+let mut score = 0;
+when score != previous score {
+    println("Score changed: ${score}");
+}
+score = 1;
+score = 2;
+```
+
+`when condition { ... }` checks the condition immediately when registered and after each subsequent statement in the same lexical block, running the block whenever the condition is true at one of those checkpoints. It is synchronous—not a background task. Put the `when` after the variables it observes have been declared. A watcher declared inside a block is scoped to that block.
+
 Use `==` and `!=` for equality; a condition must evaluate to `Bool`, so numeric values are not implicitly treated as true or false. `+` adds compatible numeric values and concatenates strings. When in doubt, keep expressions simple and use parentheses to make grouping clear.
 
 ### Pipe expressions

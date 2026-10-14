@@ -1,9 +1,30 @@
 const vscode = require('vscode');
 const { spawn } = require('child_process');
+const { LanguageClient } = require('vscode-languageclient/node');
 
 function activate(context) {
   const output = vscode.window.createOutputChannel('Alaco');
   context.subscriptions.push(output);
+
+  const config = vscode.workspace.getConfiguration('alaco');
+  if (config.get('languageServer.enabled', true)) {
+    const serverOptions = {
+      command: config.get('executable', 'alaco'),
+      args: ['lsp'],
+      options: { cwd: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath }
+    };
+    const clientOptions = {
+      documentSelector: [{ scheme: 'file', language: 'alaco' }],
+      outputChannel: output
+    };
+    const client = new LanguageClient('alaco', 'Alaco Language Server', serverOptions, clientOptions);
+    context.subscriptions.push(client);
+    client.start().catch((error) => {
+      output.appendLine(`Failed to start Alaco language server: ${error.message}`);
+      vscode.window.showErrorMessage(`Alaco language server failed to start: ${error.message}`);
+    });
+  }
+
   const run = (action) => {
     const editor = vscode.window.activeTextEditor;
     if (!editor || editor.document.languageId !== 'alaco') {

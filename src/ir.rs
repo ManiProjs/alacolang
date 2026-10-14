@@ -77,6 +77,7 @@ pub fn validate_expression_coverage(
             | ast::Expr::Interpolation(..)
             | ast::Expr::Bool(..)
             | ast::Expr::Identifier(..)
+            | ast::Expr::Previous(..)
             | ast::Expr::Shell { .. } => {}
         }
         Ok(())
@@ -154,6 +155,12 @@ pub fn validate_expression_coverage(
                     for arm in arms {
                         block(&arm.body, types, ids)?;
                     }
+                }
+                ast::Stmt::When {
+                    condition, body, ..
+                } => {
+                    expr(condition, types, ids)?;
+                    block(body, types, ids)?;
                 }
             }
         }
@@ -319,6 +326,7 @@ pub enum IrExprKind {
     Interpolation(Vec<String>),
     Bool(bool),
     Identifier(String),
+    Previous(String),
     StructLiteral {
         name: String,
         fields: Vec<(String, IrExpr)>,
@@ -525,6 +533,16 @@ fn lower_stmt(stmt: &ast::Stmt, types: &ExpressionTypes, ids: &ExpressionIds) ->
                 .collect(),
             span: *span,
         },
+        ast::Stmt::When {
+            condition,
+            body,
+            span,
+        } => IrStmt::If {
+            condition: lower_expr(condition, types, ids),
+            then_block: lower_block(body, types, ids),
+            else_block: None,
+            span: *span,
+        },
     }
 }
 
@@ -535,6 +553,7 @@ fn lower_expr(expr: &ast::Expr, types: &ExpressionTypes, ids: &ExpressionIds) ->
         ast::Expr::Interpolation(parts, _) => IrExprKind::Interpolation(parts.clone()),
         ast::Expr::Bool(value, _) => IrExprKind::Bool(*value),
         ast::Expr::Identifier(name, _) => IrExprKind::Identifier(name.clone()),
+        ast::Expr::Previous(name, _) => IrExprKind::Previous(name.clone()),
         ast::Expr::StructLiteral { name, fields, .. } => IrExprKind::StructLiteral {
             name: name.clone(),
             fields: fields

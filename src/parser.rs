@@ -37,7 +37,9 @@ impl Parser {
             self.skip_newlines();
         }
 
-        Ok(Program { items })
+        let mut program = Program { items };
+        crate::features::expand_when(&mut program);
+        Ok(program)
     }
 
     fn parse_import(&mut self) -> Result<Import, AlacoError> {
@@ -254,7 +256,7 @@ impl Parser {
 
             let is_block_statement = matches!(
                 &statement,
-                Stmt::If { .. } | Stmt::Loop { .. } | Stmt::Match { .. }
+                Stmt::If { .. } | Stmt::Loop { .. } | Stmt::Match { .. } | Stmt::When { .. }
             );
 
             statements.push(statement);
@@ -284,6 +286,7 @@ impl Parser {
             TokenKind::Loop => self.parse_loop_statement(),
             TokenKind::If => self.parse_if_statement(),
             TokenKind::Match => self.parse_match_statement(),
+            TokenKind::When => self.parse_when_statement(),
             _ => {
                 let expression = self.parse_expression()?;
                 Ok(Stmt::Expr(expression, span))
@@ -555,6 +558,20 @@ impl Parser {
         })
     }
 
+    fn parse_when_statement(&mut self) -> Result<Stmt, AlacoError> {
+        let start = self.peek().span.offset();
+        self.consume(&TokenKind::When, "expected 'when'")?;
+        let condition = self.parse_expression()?;
+        self.skip_newlines();
+        let body = self.parse_block()?;
+        let end = self.previous().span.offset() + self.previous().span.len();
+        Ok(Stmt::When {
+            condition,
+            body,
+            span: Span { start, end },
+        })
+    }
+
     fn parse_expression(&mut self) -> Result<Expr, AlacoError> {
         self.parse_assignment()
     }
@@ -785,6 +802,12 @@ impl Parser {
     }
 
     fn parse_unary(&mut self) -> Result<Expr, AlacoError> {
+        if self.matches(&TokenKind::Previous) {
+            let start = self.previous().span.offset();
+            let name = self.consume_identifier("expected variable name after 'previous'")?;
+            let end = self.previous().span.offset() + self.previous().span.len();
+            return Ok(Expr::Previous(name, Span { start, end }));
+        }
         if self.matches(&TokenKind::Minus) {
             let start = self.previous().span.offset();
             let operand = self.parse_unary()?;

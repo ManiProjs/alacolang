@@ -941,6 +941,27 @@ impl<'a> Analyzer<'a> {
                     )?;
                 }
             }
+
+            Stmt::When {
+                condition, body, ..
+            } => {
+                let condition_type =
+                    self.type_of_expression(condition, scopes, program, functions)?;
+                self.require_type_at(
+                    &Type::Bool,
+                    &condition_type,
+                    "when condition",
+                    condition.span(),
+                )?;
+                self.analyze_block(
+                    body,
+                    scopes,
+                    loop_depth,
+                    expected_return,
+                    program,
+                    functions,
+                )?;
+            }
         }
 
         Ok(())
@@ -1108,6 +1129,25 @@ impl<'a> Analyzer<'a> {
                 }
 
                 Err(self.undefined_variable_error(name, *span, scopes))
+            }
+
+            Expr::Previous(name, span) => {
+                let Some(variable) = self.find_variable(scopes, name) else {
+                    return Err(self.undefined_variable_error(name, *span, scopes));
+                };
+                if !matches!(
+                    variable.ty,
+                    Type::Int | Type::Float | Type::Bool | Type::String
+                ) {
+                    return Err(self.error(
+                        format!(
+                            "'previous' does not support values of type {}",
+                            self.type_name(&variable.ty)
+                        ),
+                        Some(*span),
+                    ));
+                }
+                Ok(variable.ty.clone())
             }
 
             Expr::StructLiteral { name, fields, span } => {

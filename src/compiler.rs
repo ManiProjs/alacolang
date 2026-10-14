@@ -1123,6 +1123,8 @@ struct Person {
             import std.timing;
             import std.math;
             import std.stats;
+            import std.string;
+            import std.validation;
 
             fn double(value: Int) -> Int { return value * 2; }
 
@@ -1144,7 +1146,17 @@ struct Person {
                 println(math.lcm(6, 8));
                 println(math.pow_int(2, 8));
                 println(math.is_prime(29));
+                println(math.factorial(5));
+                println(math.ceil_div(10, 3));
+                println(math.triangular(10));
+                println(math.is_power_of_two(1024));
                 println(stats.median3(9, 1, 4));
+                println(stats.sum4(1, 2, 3, 4));
+                println(stats.average4(2, 4, 6, 8));
+                println(stats.percentage(1, 4));
+                println(validation.is_valid_port(443));
+                println(string.surround("alaco", "*"));
+                println(string.join3("a", ",", "b", "c"));
             }
         "#;
 
@@ -1168,7 +1180,41 @@ struct Person {
             ),
             "{stdout}"
         );
-        assert!(stdout.ends_with("6\n24\n256\ntrue\n4\n"), "{stdout}");
+        assert!(
+            stdout.ends_with(
+                "6\n24\n256\ntrue\n120\n4\n55\ntrue\n4\n10\n5\n25\ntrue\n*alaco*\na,b,c\n"
+            ),
+            "{stdout}"
+        );
+    }
+
+    #[test]
+    fn previous_and_when_compile_and_run_as_reactive_state() {
+        let source = r#"
+            fn main() {
+                let mut score = 0;
+                when score != previous score {
+                    println("changed ${score}");
+                }
+                score = 1;
+                score = 2;
+                score = 2;
+                score = 3;
+            }
+        "#;
+        let output_path =
+            std::env::temp_dir().join(format!("alaco_previous_when_{}", std::process::id()));
+        Compiler::build(source, "previous_when_test.aco", &output_path)
+            .expect("previous and when should compile");
+        let output = std::process::Command::new(&output_path)
+            .output()
+            .expect("generated executable should run");
+        let _ = std::fs::remove_file(&output_path);
+        assert!(output.status.success());
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "changed 1\nchanged 2\nchanged 3\n"
+        );
     }
 
     #[test]

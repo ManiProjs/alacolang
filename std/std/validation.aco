@@ -16,3 +16,19 @@ fn is_positive(value: Int) -> Bool {
 fn is_non_negative(value: Int) -> Bool {
     return value >= 0;
 }
+
+fn is_negative(value: Int) -> Bool {
+    return value < 0;
+}
+
+fn is_zero(value: Int) -> Bool {
+    return value == 0;
+}
+
+fn is_non_zero(value: Int) -> Bool {
+    return value != 0;
+}
+
+fn is_valid_port(value: Int) -> Bool {
+    return value >= 1 and value <= 65535;
+}

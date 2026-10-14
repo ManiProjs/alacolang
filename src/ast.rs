@@ -132,6 +132,11 @@ pub enum Stmt {
         arms: Vec<MatchArm>,
         span: Span,
     },
+    When {
+        condition: Expr,
+        body: Block,
+        span: Span,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -151,6 +156,7 @@ pub enum Expr {
     Bool(bool, Span),
 
     Identifier(String, Span),
+    Previous(String, Span),
 
     StructLiteral {
         name: String,
@@ -209,6 +215,7 @@ impl Expr {
             Expr::Interpolation(_, span) => *span,
             Expr::Bool(_, span) => *span,
             Expr::Identifier(_, span) => *span,
+            Expr::Previous(_, span) => *span,
             Expr::StructLiteral { span, .. } => *span,
             Expr::Binary { span, .. } => *span,
             Expr::Pipe { span, .. } => *span,
@@ -233,6 +240,7 @@ impl Stmt {
             Stmt::Loop { span, .. } => *span,
             Stmt::Expr(_, span) => *span,
             Stmt::Match { span, .. } => *span,
+            Stmt::When { span, .. } => *span,
         }
     }
 }

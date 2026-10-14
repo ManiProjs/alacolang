@@ -42,6 +42,7 @@ When using an installed `alaco` executable, use the same commands directly. The 
 | `alaco clean` | Remove generated artifacts in the current project's `target/` directory. |
 | `alaco doctor` | Check for the C++ compiler and installed standard library. |
 | `alaco manifest` | Validate and display `Alaco.toml` package metadata. |
+| `alaco lsp` | Start the Language Server Protocol server over stdio for editor features. |
 | `alaco --help` | Show command-line help. |
 
 For a quick start:
@@ -88,7 +89,8 @@ Put test programs in `tests/` with one `.aco` file per test. Each file is compil
 - [Standard library reference](docs/standard-library.md) — module APIs, return values, and runtime limitations.
 - [Project workflow](docs/project-workflow.md) — create a project, use the check-run-build cycle, resolve local modules, and interpret diagnostics.
 - [Examples catalog](examples/README.md) — runnable examples grouped by language feature, module, and package workflow, including an intentional diagnostic fixture.
-- [Editor support](editors/README.md) — VS Code, Neovim, and Vim syntax highlighting and compiler commands.
+- [Editor support](editors/README.md) — VS Code, Neovim, and Vim syntax highlighting, compiler commands, and LSP integration.
+- [Language Server](docs/lsp.md) — LSP setup, editor features, and current implementation boundaries.
 
 ## Standard library example
 
@@ -105,7 +107,7 @@ fn main() {
 
 `std.io` is available by default. Other modules must be imported explicitly. See the full [standard-library reference](docs/standard-library.md) for all currently documented modules.
 
-The standard library includes filesystem, environment, path, JSON text, basic TOML syntax checking, HTTP GET/JSON POST, and timing helpers. The JSON/TOML/HTTP APIs are intentionally small today; see the reference for their limitations.
+The standard library includes integer math, string composition, statistics, unit conversion, validation, filesystem, environment, path, JSON text, basic TOML syntax checking, HTTP GET/JSON POST, and timing helpers. The JSON/TOML/HTTP APIs are intentionally small today; see the reference for their limitations. The language also supports `previous name` for the value before an assignment and synchronous `when condition { ... }` checks within a lexical block.
 
 ## Compiler diagnostics
 

@@ -397,6 +397,8 @@ impl<'a> Lexer<'a> {
             "loop" => self.add_token(TokenKind::Loop),
             "repeat" => self.add_token(TokenKind::Repeat),
             "while" => self.add_token(TokenKind::While),
+            "when" => self.add_token(TokenKind::When),
+            "previous" => self.add_token(TokenKind::Previous),
             "for" => self.add_token(TokenKind::For),
             "in" => self.add_token(TokenKind::In),
             "if" => self.add_token(TokenKind::If),

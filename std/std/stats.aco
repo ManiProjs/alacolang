@@ -53,3 +53,19 @@ fn median3(a: Int, b: Int, c: Int) -> Int {
     }
     return b;
 }
+
+fn sum4(a: Int, b: Int, c: Int, d: Int) -> Int {
+    return a + b + c + d;
+}
+
+fn average4(a: Int, b: Int, c: Int, d: Int) -> Int {
+    return (a + b + c + d) / 4;
+}
+
+// Integer percentage. Returns 0 when total is zero.
+fn percentage(value: Int, total: Int) -> Int {
+    if total == 0 {
+        return 0;
+    }
+    return (value * 100) / total;
+}

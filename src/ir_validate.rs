@@ -167,6 +167,7 @@ fn validate_expr(expr: &IrExpr) -> Result<(), AlacoError> {
         | IrExprKind::Interpolation(_)
         | IrExprKind::Bool(_)
         | IrExprKind::Identifier(_)
+        | IrExprKind::Previous(_)
         | IrExprKind::Shell { .. } => {}
         IrExprKind::StructLiteral { fields, .. } => {
             for (_, value) in fields {

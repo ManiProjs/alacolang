@@ -3,10 +3,12 @@ mod ast;
 mod codegen;
 mod compiler;
 mod error;
+mod features;
 mod ir;
 mod ir_validate;
 mod language;
 mod lexer;
+mod lsp;
 mod manifest;
 mod optimizer;
 mod parser;
@@ -86,6 +88,9 @@ enum CommandKind {
 
     /// Validate and display the current package manifest.
     Manifest,
+
+    /// Start the Alaco Language Server Protocol (LSP) server over stdio.
+    Lsp,
 }
 
 fn main() -> ExitCode {
@@ -133,6 +138,10 @@ fn run_cli() -> Result<ExitCode> {
         Some(CommandKind::Doctor) => doctor(),
 
         Some(CommandKind::Manifest) => show_manifest(),
+
+        Some(CommandKind::Lsp) => lsp::run()
+            .map(|()| ExitCode::SUCCESS)
+            .map_err(|error| miette::miette!("LSP transport error: {error}")),
 
         None => unreachable!("Clap requires a subcommand"),
     }

@@ -18,6 +18,7 @@ alaco check examples/type_safety.aco
 | `string_interpolation.aco` | Interpolating variables with `${name}` |
 | `shell.aco` | Running a host shell command and printing its result |
 | `type_safety.aco` | Typed structs and passing a struct to a function |
+| `previous_when.aco` | Previous variable values and edge-triggered `when` blocks |
 
 ## Standard library
 

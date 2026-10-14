@@ -314,6 +314,7 @@ impl CppCodegen {
             }
 
             IrExprKind::Identifier(..)
+            | IrExprKind::Previous(..)
             | IrExprKind::Number(..)
             | IrExprKind::String(..)
             | IrExprKind::Interpolation(..)
@@ -1083,6 +1084,14 @@ static std::string __builtin_http_post(const std::string& url, const std::string
 
         self.push_line(&format!("{} {}({}) {{", return_type, name, params));
         self.indent += 1;
+        for parameter in &function.parameters {
+            self.push_line(&format!(
+                "{} {} = {};",
+                self.type_name(&parameter.ty),
+                self.previous_identifier(&parameter.name),
+                self.cpp_identifier(&parameter.name)
+            ));
+        }
         self.generate_ir_block_contents(&function.body);
         if function.name == "main" {
             self.push_line("return 0;");
@@ -1102,12 +1111,20 @@ static std::string __builtin_http_post(const std::string& url, const std::string
         match statement {
             IrStmt::Let {
                 name, ty, value, ..
-            } => self.push_line(&format!(
-                "{} {} = {};",
-                self.type_name(ty),
-                self.cpp_identifier(name),
-                self.ir_expression(value)
-            )),
+            } => {
+                self.push_line(&format!(
+                    "{} {} = {};",
+                    self.type_name(ty),
+                    self.cpp_identifier(name),
+                    self.ir_expression(value)
+                ));
+                self.push_line(&format!(
+                    "{} {} = {};",
+                    self.type_name(ty),
+                    self.previous_identifier(name),
+                    self.cpp_identifier(name)
+                ));
+            }
             IrStmt::Destructure {
                 bindings,
                 value,
@@ -1126,6 +1143,11 @@ static std::string __builtin_http_post(const std::string& url, const std::string
                         self.cpp_identifier(binding),
                         temporary,
                         self.cpp_identifier(field)
+                    ));
+                    self.push_line(&format!(
+                        "auto {} = {};",
+                        self.previous_identifier(binding),
+                        self.cpp_identifier(binding)
                     ));
                 }
             }
@@ -1241,6 +1263,7 @@ static std::string __builtin_http_post(const std::string& url, const std::string
             }
             IrExprKind::Bool(value) => value.to_string(),
             IrExprKind::Identifier(name) => self.cpp_identifier(name),
+            IrExprKind::Previous(name) => self.previous_identifier(name),
             IrExprKind::StructLiteral { name, fields } => format!(
                 "{}{{{}}}",
                 self.cpp_identifier(name),
@@ -1254,12 +1277,33 @@ static std::string __builtin_http_post(const std::string& url, const std::string
                 left,
                 operator,
                 right,
-            } => format!(
-                "({} {} {})",
-                self.ir_expression(left),
-                self.binary_operator(*operator),
-                self.ir_expression(right)
-            ),
+            } => {
+                if matches!(
+                    operator,
+                    BinaryOp::Assign
+                        | BinaryOp::AddAssign
+                        | BinaryOp::SubtractAssign
+                        | BinaryOp::MultiplyAssign
+                        | BinaryOp::DivideAssign
+                ) {
+                    if let IrExprKind::Identifier(name) = &left.kind {
+                        return format!(
+                            "(({} = {}), ({} {} {}))",
+                            self.previous_identifier(name),
+                            self.cpp_identifier(name),
+                            self.cpp_identifier(name),
+                            self.binary_operator(*operator),
+                            self.ir_expression(right)
+                        );
+                    }
+                }
+                format!(
+                    "({} {} {})",
+                    self.ir_expression(left),
+                    self.binary_operator(*operator),
+                    self.ir_expression(right)
+                )
+            }
             IrExprKind::Pipe { input, target } => {
                 let input = self.ir_expression(input);
                 match target {
@@ -1483,6 +1527,10 @@ static std::string __builtin_http_post(const std::string& url, const std::string
 
             _ => name.to_string(),
         }
+    }
+
+    fn previous_identifier(&self, name: &str) -> String {
+        format!("_alaco_previous_{}", self.cpp_identifier(name))
     }
 
     // ============================================================

@@ -13,3 +13,11 @@ fn repeat_string(value: String, count: Int) -> String {
     }
     return result;
 }
+
+fn surround(value: String, wrapper: String) -> String {
+    return wrapper + value + wrapper;
+}
+
+fn join3(first: String, separator: String, second: String, third: String) -> String {
+    return first + separator + second + separator + third;
+}

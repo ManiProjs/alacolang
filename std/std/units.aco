@@ -21,3 +21,19 @@ fn kilograms_to_pounds(value: Float) -> Float {
 fn pounds_to_kilograms(value: Float) -> Float {
     return value / 2.2046226218;
 }
+
+fn meters_to_feet(value: Float) -> Float {
+    return value * 3.280839895;
+}
+
+fn feet_to_meters(value: Float) -> Float {
+    return value / 3.280839895;
+}
+
+fn liters_to_us_gallons(value: Float) -> Float {
+    return value / 3.785411784;
+}
+
+fn us_gallons_to_liters(value: Float) -> Float {
+    return value * 3.785411784;
+}

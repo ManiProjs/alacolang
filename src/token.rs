@@ -15,6 +15,8 @@ pub enum TokenKind {
     Loop,
     Repeat,
     While,
+    When,
+    Previous,
     For,
     In,
     If,

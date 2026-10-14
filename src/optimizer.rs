@@ -91,6 +91,7 @@ fn optimize_expr(expr: &mut IrExpr) {
         | IrExprKind::Interpolation(_)
         | IrExprKind::Bool(_)
         | IrExprKind::Identifier(_)
+        | IrExprKind::Previous(_)
         | IrExprKind::Shell { .. } => {}
     }
 

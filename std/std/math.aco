@@ -114,3 +114,49 @@ fn is_prime(value: Int) -> Bool {
     }
     return true;
 }
+
+// Factorial for 0..=20. Returns -1 for negative values or values that would
+// overflow a signed 64-bit integer.
+fn factorial(value: Int) -> Int {
+    if value < 0 or value > 20 {
+        return -1;
+    }
+    let mut result = 1;
+    let mut factor = 2;
+    loop (while factor <= value) {
+        result = result * factor;
+        factor = factor + 1;
+    }
+    return result;
+}
+
+// Round integer division upward. Returns 0 for a zero divisor.
+fn ceil_div(value: Int, divisor: Int) -> Int {
+    if divisor == 0 {
+        return 0;
+    }
+    let quotient = value / divisor;
+    let remainder = value % divisor;
+    if remainder != 0 and ((value > 0 and divisor > 0) or (value < 0 and divisor < 0)) {
+        return quotient + 1;
+    }
+    return quotient;
+}
+
+fn triangular(value: Int) -> Int {
+    if value < 0 or value > 3037000499 {
+        return -1;
+    }
+    return (value * (value + 1)) / 2;
+}
+
+fn is_power_of_two(value: Int) -> Bool {
+    if value <= 0 {
+        return false;
+    }
+    let mut remaining = value;
+    loop (while remaining % 2 == 0) {
+        remaining = remaining / 2;
+    }
+    return remaining == 1;
+}

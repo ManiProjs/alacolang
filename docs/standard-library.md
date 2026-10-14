@@ -42,6 +42,10 @@ Import with `import std.math;`.
 | `lcm(left, right)` | Least common multiple; returns zero if either input is zero. |
 | `pow_int(base, exponent)` | Integer exponentiation; non-positive exponents return `1`. |
 | `is_prime(value)` | Test primality by trial division up to the square root. |
+| `factorial(value)` | Factorial for 0 through 20; returns `-1` for negative or too-large inputs. |
+| `ceil_div(value, divisor)` | Integer division rounded upward; returns `0` for a zero divisor. |
+| `triangular(value)` | Sum from 1 through `value`; returns `-1` for negative or out-of-range inputs. |
+| `is_power_of_two(value)` | True for positive powers of two. |
 
 ## `std.string` — string helpers
 
@@ -52,6 +56,8 @@ Import with `import std.string;`.
 | `concat(left, right)` | Concatenate two strings. The `+` operator also concatenates strings. |
 | `is_empty(value)` | Return whether a string is empty. |
 | `repeat_string(value, count)` | Repeat a string `count` times; a non-positive count performs no iterations. |
+| `surround(value, wrapper)` | Add the wrapper string before and after a value. |
+| `join3(first, separator, second, third)` | Join three strings with the same separator. |
 
 ## `std.geometry` — integer geometry
 
@@ -76,6 +82,8 @@ Import with `import std.stats;`.
 | `min2(a, b)` / `max2(a, b)` | Return the minimum / maximum of two integers. |
 | `min3(a, b, c)` / `max3(a, b, c)` | Return the minimum / maximum of three integers. |
 | `median3(a, b, c)` | Return the middle of three integers without sorting. |
+| `sum4(a, b, c, d)` / `average4(a, b, c, d)` | Sum or integer-average four values. |
+| `percentage(value, total)` | Return the integer percentage; returns `0` when total is zero. |
 
 ## `std.units` — unit conversions
 
@@ -89,6 +97,8 @@ Import with `import std.units;`. All functions accept and return `Float`.
 | `miles_to_kilometers(value)` | Miles → kilometers |
 | `kilograms_to_pounds(value)` | Kilograms → pounds |
 | `pounds_to_kilograms(value)` | Pounds → kilograms |
+| `meters_to_feet(value)` / `feet_to_meters(value)` | Meters ↔ feet |
+| `liters_to_us_gallons(value)` / `us_gallons_to_liters(value)` | Liters ↔ US gallons |
 
 ## `std.validation` — simple predicates
 
@@ -100,6 +110,8 @@ Import with `import std.validation;`.
 | `is_in_range(value, lower, upper)` | True when an integer lies within inclusive bounds. |
 | `is_positive(value)` | True when an integer is greater than zero. |
 | `is_non_negative(value)` | True when an integer is zero or greater. |
+| `is_negative(value)` / `is_zero(value)` / `is_non_zero(value)` | Sign and zero checks. |
+| `is_valid_port(value)` | True for TCP/UDP port numbers from 1 through 65535. |
 
 ## `std.fs` — filesystem operations
 
