@@ -1,4 +1,8 @@
-use std::{cell::RefCell, collections::HashMap, collections::HashSet};
+use std::{
+    cell::{Cell, RefCell},
+    collections::HashMap,
+    collections::HashSet,
+};
 
 use crate::{
     ast::{
@@ -6,7 +10,7 @@ use crate::{
         UnaryOp,
     },
     error::AlacoError,
-    ir::IrProgram,
+    ir::{ExprId, ExpressionIds, ExpressionTypes, IrProgram},
     language::BinaryOp,
     stdlib::LoadedModule,
 };
@@ -27,7 +31,9 @@ struct FunctionInfo {
 #[derive(Debug, Clone)]
 pub struct Analyzer<'a> {
     modules: &'a [LoadedModule],
-    expression_types: RefCell<HashMap<(usize, usize), Type>>,
+    expression_types: RefCell<ExpressionTypes>,
+    expression_ids: RefCell<ExpressionIds>,
+    next_expression_id: Cell<u32>,
 }
 
 impl<'a> Analyzer<'a> {
@@ -35,6 +41,8 @@ impl<'a> Analyzer<'a> {
         Self {
             modules,
             expression_types: RefCell::new(HashMap::new()),
+            expression_ids: RefCell::new(HashMap::new()),
+            next_expression_id: Cell::new(0),
         }
     }
 
@@ -61,10 +69,13 @@ impl<'a> Analyzer<'a> {
             }
         }
 
-        Ok(IrProgram::from_validated(
+        let mut ir = IrProgram::from_validated(
             program,
             &self.expression_types.borrow(),
-        ))
+            &self.expression_ids.borrow(),
+        );
+        crate::optimizer::optimize(&mut ir);
+        Ok(ir)
     }
 
     /// Analyze one imported module in isolation for IR lowering while keeping
@@ -86,10 +97,13 @@ impl<'a> Analyzer<'a> {
             }
         }
 
-        Ok(IrProgram::from_validated(
+        let mut ir = IrProgram::from_validated(
             program,
             &self.expression_types.borrow(),
-        ))
+            &self.expression_ids.borrow(),
+        );
+        crate::optimizer::optimize(&mut ir);
+        Ok(ir)
     }
 
     // ------------------------------------------------------------
@@ -1000,12 +1014,26 @@ impl<'a> Analyzer<'a> {
     ) -> Result<Type, AlacoError> {
         let result = self.type_of_expression_inner(expression, scopes, program, functions);
         if let Ok(ty) = &result {
-            let span = expression.span();
-            self.expression_types
-                .borrow_mut()
-                .insert((span.start, span.end), ty.clone());
+            let id = self.expression_id(expression);
+            self.expression_types.borrow_mut().insert(id, ty.clone());
         }
         result
+    }
+
+    /// Allocate one identity per AST expression. The AST is immutable between
+    /// analysis and IR lowering, so its node address is only used to retrieve
+    /// this compilation-local ID; semantic data itself is keyed by ExprId.
+    fn expression_id(&self, expression: &Expr) -> ExprId {
+        let key = expression as *const Expr as usize;
+        if let Some(id) = self.expression_ids.borrow().get(&key) {
+            return *id;
+        }
+
+        let id = ExprId(self.next_expression_id.get());
+        self.next_expression_id
+            .set(id.0.checked_add(1).expect("expression ID overflow"));
+        self.expression_ids.borrow_mut().insert(key, id);
+        id
     }
 
     fn type_of_expression_inner(
@@ -1108,16 +1136,16 @@ impl<'a> Analyzer<'a> {
                 target,
                 span,
             } => {
-                let mut arguments = vec![(**input).clone()];
+                let mut call_arguments = vec![input.as_ref()];
                 let (callee, additional_arguments): (&Expr, &[Expr]) = match target.as_ref() {
                     Expr::Call {
                         callee, arguments, ..
                     } => (callee, arguments),
                     other => (other, &[]),
                 };
-                arguments.extend(additional_arguments.iter().cloned());
+                call_arguments.extend(additional_arguments.iter());
                 let result = self
-                    .type_of_call(callee, &arguments, scopes, program, functions)
+                    .type_of_call(callee, &call_arguments, scopes, program, functions)
                     .map_err(|error| match error {
                         AlacoError::Analysis {
                             message,
@@ -1132,15 +1160,17 @@ impl<'a> Analyzer<'a> {
                 callee,
                 arguments,
                 span,
-            } => self
-                .type_of_call(callee, arguments, scopes, program, functions)
-                .map_err(|error| match error {
-                    AlacoError::Analysis {
-                        message,
-                        span: None,
-                    } => self.error(message, Some(*span)),
-                    other => other,
-                }),
+            } => {
+                let arguments: Vec<&Expr> = arguments.iter().collect();
+                self.type_of_call(callee, &arguments, scopes, program, functions)
+                    .map_err(|error| match error {
+                        AlacoError::Analysis {
+                            message,
+                            span: None,
+                        } => self.error(message, Some(*span)),
+                        other => other,
+                    })
+            }
 
             Expr::Member {
                 object,
@@ -1342,7 +1372,7 @@ impl<'a> Analyzer<'a> {
     fn type_of_call(
         &self,
         callee: &Expr,
-        arguments: &[Expr],
+        arguments: &[&Expr],
         scopes: &mut Vec<HashMap<String, Variable>>,
         program: &Program,
         functions: &HashMap<String, FunctionInfo>,
@@ -1911,6 +1941,25 @@ impl<'a> Analyzer<'a> {
             message: message.into(),
             span: span.map(Into::into),
         }
+    }
+}
+
+#[cfg(test)]
+mod expression_id_tests {
+    use super::*;
+
+    #[test]
+    fn expression_ids_are_unique_even_when_source_spans_match() {
+        let analyzer = Analyzer::new(&[]);
+        let span = Span { start: 4, end: 5 };
+        let first = Expr::Number("1".into(), span);
+        let second = Expr::Number("1".into(), span);
+
+        let first_id = analyzer.expression_id(&first);
+        let second_id = analyzer.expression_id(&second);
+
+        assert_ne!(first_id, second_id);
+        assert_eq!(first_id, analyzer.expression_id(&first));
     }
 }
 

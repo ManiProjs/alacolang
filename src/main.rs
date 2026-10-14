@@ -7,6 +7,7 @@ mod ir;
 mod language;
 mod lexer;
 mod manifest;
+mod optimizer;
 mod parser;
 mod stdlib;
 mod token;

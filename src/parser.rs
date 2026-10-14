@@ -271,44 +271,6 @@ impl Parser {
         Ok(Block { statements })
     }
 
-    fn parse_shell_block(&mut self) -> Result<String, AlacoError> {
-        self.consume(&TokenKind::LeftBrace, "expected '{' after 'shell'")?;
-
-        let mut command = String::new();
-
-        while !self.check(&TokenKind::RightBrace) && !self.is_at_end() {
-            let token = self.advance().clone();
-
-            match token.kind {
-                TokenKind::Newline => {
-                    command.push('\n');
-                }
-
-                _ => {
-                    if !command.is_empty()
-                        && !command.ends_with('\n')
-                        && !matches!(
-                            token.kind,
-                            TokenKind::Comma
-                                | TokenKind::Dot
-                                | TokenKind::Colon
-                                | TokenKind::Semicolon
-                                | TokenKind::RightParen
-                        )
-                    {
-                        command.push(' ');
-                    }
-
-                    command.push_str(&token.lexeme);
-                }
-            }
-        }
-
-        self.consume(&TokenKind::RightBrace, "expected '}' after shell block")?;
-
-        Ok(command.trim().to_string())
-    }
-
     fn parse_statement(&mut self) -> Result<Stmt, AlacoError> {
         let span = self.token_span(self.peek());
         match self.peek().kind.clone() {

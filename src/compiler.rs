@@ -114,18 +114,6 @@ impl Compiler {
         Ok(())
     }
 
-    /// Get the default executable path for an Alaco source file.
-    ///
-    /// `hello.aco` -> `hello`
-    pub fn output_path(file: &Path) -> PathBuf {
-        let stem = file
-            .file_stem()
-            .and_then(|stem| stem.to_str())
-            .unwrap_or("alaco_program");
-
-        file.parent().unwrap_or_else(|| Path::new(".")).join(stem)
-    }
-
     fn parse_module_file(path: &Path) -> Result<Program> {
         let filename = path.to_string_lossy().into_owned();
         let source = fs::read_to_string(path)
@@ -958,6 +946,18 @@ struct Person {
             panic!("IR should contain the function's return statement");
         };
         assert_eq!(return_value.ty, crate::ast::Type::String);
+    }
+
+    #[test]
+    fn compilation_folds_constant_integer_arithmetic() {
+        let cpp = Compiler::compile(
+            "fn calculate() -> Int { return (6 * 7) + 1; } fn main() { println(calculate()); }",
+            "constant_folding.aco",
+        )
+        .expect("constant integer arithmetic should compile");
+
+        assert!(cpp.contains("return 43;"), "{cpp}");
+        assert!(!cpp.contains("(6 * 7)"), "{cpp}");
     }
 
     #[test]

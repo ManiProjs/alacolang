@@ -217,13 +217,6 @@ pub enum AlacoError {
         span: SourceSpan,
     },
 
-    #[error("`for` loop cannot have an additional iteration binding")]
-    #[diagnostic(code(alaco::analysis::for_binding))]
-    ForLoopBinding {
-        #[label("additional binding")]
-        span: SourceSpan,
-    },
-
     #[error("top-level statements are not allowed")]
     #[diagnostic(code(alaco::analysis::top_level_statement))]
     TopLevelStatement {
@@ -387,11 +380,6 @@ impl AlacoError {
             Self::MainHasReturnType { .. } => Some((
                 "`main` cannot have an explicit return type.".into(),
                 "Remove the return type from `main`.".into(),
-            )),
-
-            Self::ForLoopBinding { .. } => Some((
-                "This `for` loop already has its iteration binding.".into(),
-                "Remove the additional iteration binding.".into(),
             )),
 
             Self::TopLevelStatement { .. } => Some((
