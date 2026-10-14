@@ -38,6 +38,10 @@ Import with `import std.math;`.
 | `clamp(value, lower, upper)` | Limit a value to the inclusive bounds. |
 | `in_range(value, lower, upper)` | Test whether the value is within the inclusive bounds. |
 | `is_even(value)` / `is_odd(value)` | Test integer parity. |
+| `gcd(left, right)` | Greatest common divisor using the Euclidean algorithm. |
+| `lcm(left, right)` | Least common multiple; returns zero if either input is zero. |
+| `pow_int(base, exponent)` | Integer exponentiation; non-positive exponents return `1`. |
+| `is_prime(value)` | Test primality by trial division up to the square root. |
 
 ## `std.string` — string helpers
 
@@ -71,6 +75,7 @@ Import with `import std.stats;`.
 | `average2(a, b)` / `average3(a, b, c)` | Calculate an integer average; fractional parts are discarded by integer division. |
 | `min2(a, b)` / `max2(a, b)` | Return the minimum / maximum of two integers. |
 | `min3(a, b, c)` / `max3(a, b, c)` | Return the minimum / maximum of three integers. |
+| `median3(a, b, c)` | Return the middle of three integers without sorting. |
 
 ## `std.units` — unit conversions
 

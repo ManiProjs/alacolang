@@ -66,3 +66,51 @@ fn in_range(value: Int, lower: Int, upper: Int) -> Bool {
     }
     return value <= upper;
 }
+
+// Greatest common divisor of two integers (Euclidean algorithm).
+fn gcd(left: Int, right: Int) -> Int {
+    let mut a = abs(left);
+    let mut b = abs(right);
+    loop (while b != 0) {
+        let remainder = a % b;
+        a = b;
+        b = remainder;
+    }
+    return a;
+}
+
+// Integer exponentiation. Non-positive exponents return 1.
+fn pow_int(base: Int, exponent: Int) -> Int {
+    let mut result = 1;
+    let mut count = 0;
+    loop (while count < exponent) {
+        result = result * base;
+        count = count + 1;
+    }
+    return result;
+}
+
+// Least common multiple. Returns zero when either input is zero.
+fn lcm(left: Int, right: Int) -> Int {
+    if left == 0 {
+        return 0;
+    }
+    if right == 0 {
+        return 0;
+    }
+    return abs((left / gcd(left, right)) * right);
+}
+
+fn is_prime(value: Int) -> Bool {
+    if value < 2 {
+        return false;
+    }
+    let mut divisor = 2;
+    loop (while divisor <= value / divisor) {
+        if value % divisor == 0 {
+            return false;
+        }
+        divisor = divisor + 1;
+    }
+    return true;
+}

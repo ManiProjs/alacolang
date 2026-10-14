@@ -693,6 +693,10 @@ struct Person {
                 println(math.clamp(12, 0, 10));
                 println(math.is_even(8));
                 println(math.is_odd(7));
+                println(math.gcd(54, 24));
+                println(math.lcm(6, 8));
+                println(math.pow_int(2, 8));
+                println(math.is_prime(29));
             }
             "#,
             "math_helpers_test.aco",
@@ -704,6 +708,10 @@ struct Person {
         assert!(cpp.contains("math::clamp(12, 0, 10)"));
         assert!(cpp.contains("math::is_even(8)"));
         assert!(cpp.contains("math::is_odd(7)"));
+        assert!(cpp.contains("math::gcd(54, 24)"));
+        assert!(cpp.contains("math::lcm(6, 8)"));
+        assert!(cpp.contains("math::pow_int(2, 8)"));
+        assert!(cpp.contains("math::is_prime(29)"));
     }
 
     #[test]
@@ -1113,6 +1121,8 @@ struct Person {
             import std.toml;
             import std.http;
             import std.timing;
+            import std.math;
+            import std.stats;
 
             fn double(value: Int) -> Int { return value * 2; }
 
@@ -1130,6 +1140,11 @@ struct Person {
                 println(http.is_url("https://example.com"));
                 println(21 |> double);
                 println(timing.unix_seconds() > 0);
+                println(math.gcd(54, 24));
+                println(math.lcm(6, 8));
+                println(math.pow_int(2, 8));
+                println(math.is_prime(29));
+                println(stats.median3(9, 1, 4));
             }
         "#;
 
@@ -1153,6 +1168,7 @@ struct Person {
             ),
             "{stdout}"
         );
+        assert!(stdout.ends_with("6\n24\n256\ntrue\n4\n"), "{stdout}");
     }
 
     #[test]

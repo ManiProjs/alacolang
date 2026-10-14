@@ -3,6 +3,12 @@ use thiserror::Error;
 
 #[derive(Debug, Error, Diagnostic)]
 pub enum AlacoError {
+    #[error("internal compiler invariant failed: {message}")]
+    #[diagnostic(
+        code(alaco::internal::ir_invariant),
+        help("this indicates a compiler bug; please report it with the source that triggered it")
+    )]
+    InternalIrInvariant { message: String },
     // ─────────────────────────────────────────────────────────────
     // Lexer
     // ─────────────────────────────────────────────────────────────
@@ -242,6 +248,10 @@ pub enum AlacoError {
 impl AlacoError {
     pub fn explanation(&self) -> Option<(String, String)> {
         match self {
+            Self::InternalIrInvariant { message } => Some((
+                format!("The compiler detected an inconsistent intermediate representation: {message}."),
+                "This is an Alaco compiler bug rather than a source-code error. Please report the source file and compiler version.".into(),
+            )),
             Self::UnexpectedCharacter { character, .. } => Some((
                 "An unexpected character was found while tokenizing the source.".into(),
                 format!(

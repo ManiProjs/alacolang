@@ -70,11 +70,22 @@ impl<'a> Analyzer<'a> {
         }
 
         let mut ir = IrProgram::from_validated(
-            program,
+            // Guard the lowering contract so missing annotations become a
+            // diagnostic instead of a panic inside `lower_expr`.
+            {
+                crate::ir::validate_expression_coverage(
+                    program,
+                    &self.expression_types.borrow(),
+                    &self.expression_ids.borrow(),
+                )?;
+                program
+            },
             &self.expression_types.borrow(),
             &self.expression_ids.borrow(),
         );
+        crate::ir_validate::validate(&ir)?;
         crate::optimizer::optimize(&mut ir);
+        crate::ir_validate::validate(&ir)?;
         Ok(ir)
     }
 
@@ -98,11 +109,20 @@ impl<'a> Analyzer<'a> {
         }
 
         let mut ir = IrProgram::from_validated(
-            program,
+            {
+                crate::ir::validate_expression_coverage(
+                    program,
+                    &self.expression_types.borrow(),
+                    &self.expression_ids.borrow(),
+                )?;
+                program
+            },
             &self.expression_types.borrow(),
             &self.expression_ids.borrow(),
         );
+        crate::ir_validate::validate(&ir)?;
         crate::optimizer::optimize(&mut ir);
+        crate::ir_validate::validate(&ir)?;
         Ok(ir)
     }
 

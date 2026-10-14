@@ -20,6 +20,153 @@ pub struct ExprId(pub u32);
 pub type ExpressionTypes = HashMap<ExprId, Type>;
 pub type ExpressionIds = HashMap<usize, ExprId>;
 
+/// Check lowering inputs before the infallible AST-to-IR conversion runs.
+/// This turns missing semantic annotations into a compiler diagnostic rather
+/// than allowing `lower_expr` to panic on an analyzer regression.
+pub fn validate_expression_coverage(
+    program: &ast::Program,
+    types: &ExpressionTypes,
+    ids: &ExpressionIds,
+) -> Result<(), crate::error::AlacoError> {
+    fn expr(
+        e: &ast::Expr,
+        types: &ExpressionTypes,
+        ids: &ExpressionIds,
+    ) -> Result<(), crate::error::AlacoError> {
+        let key = e as *const ast::Expr as usize;
+        if ids.get(&key).and_then(|id| types.get(id)).is_none() {
+            return Err(crate::error::AlacoError::InternalIrInvariant {
+                message: format!(
+                    "semantic analysis omitted a type annotation at {}..{}",
+                    e.span().start,
+                    e.span().end
+                ),
+            });
+        }
+        match e {
+            ast::Expr::StructLiteral { fields, .. } => {
+                for (_, e) in fields {
+                    expr(e, types, ids)?;
+                }
+            }
+            ast::Expr::Binary { left, right, .. } => {
+                expr(left, types, ids)?;
+                expr(right, types, ids)?;
+            }
+            ast::Expr::Pipe { input, target, .. } => {
+                expr(input, types, ids)?;
+                callee(target, types, ids)?;
+            }
+            ast::Expr::Unary { operand, .. } => expr(operand, types, ids)?,
+            ast::Expr::Call {
+                callee, arguments, ..
+            } => {
+                callee_expr(callee, types, ids)?;
+                for arg in arguments {
+                    expr(arg, types, ids)?;
+                }
+            }
+            ast::Expr::Member { object, .. } => expr(object, types, ids)?,
+            ast::Expr::Intrinsic { arguments, .. } => {
+                for arg in arguments {
+                    expr(arg, types, ids)?;
+                }
+            }
+            ast::Expr::Number(..)
+            | ast::Expr::String(..)
+            | ast::Expr::Interpolation(..)
+            | ast::Expr::Bool(..)
+            | ast::Expr::Identifier(..)
+            | ast::Expr::Shell { .. } => {}
+        }
+        Ok(())
+    }
+    fn callee_expr(
+        e: &ast::Expr,
+        types: &ExpressionTypes,
+        ids: &ExpressionIds,
+    ) -> Result<(), crate::error::AlacoError> {
+        match e {
+            ast::Expr::Identifier(..) => Ok(()),
+            ast::Expr::Member { object, .. } => callee_expr(object, types, ids),
+            _ => expr(e, types, ids),
+        }
+    }
+    fn callee(
+        e: &ast::Expr,
+        types: &ExpressionTypes,
+        ids: &ExpressionIds,
+    ) -> Result<(), crate::error::AlacoError> {
+        match e {
+            ast::Expr::Identifier(..) | ast::Expr::Member { .. } => callee_expr(e, types, ids),
+            ast::Expr::Call {
+                callee, arguments, ..
+            } => {
+                callee_expr(callee, types, ids)?;
+                for arg in arguments {
+                    expr(arg, types, ids)?;
+                }
+                Ok(())
+            }
+            _ => expr(e, types, ids),
+        }
+    }
+    fn block(
+        b: &ast::Block,
+        types: &ExpressionTypes,
+        ids: &ExpressionIds,
+    ) -> Result<(), crate::error::AlacoError> {
+        for s in &b.statements {
+            match s {
+                ast::Stmt::Let { value, .. }
+                | ast::Stmt::Destructure { value, .. }
+                | ast::Stmt::Expr(value, _) => expr(value, types, ids)?,
+                ast::Stmt::Return(value, _) | ast::Stmt::Stop(value, _) => {
+                    if let Some(value) = value {
+                        expr(value, types, ids)?;
+                    }
+                }
+                ast::Stmt::Skip(_) => {}
+                ast::Stmt::If {
+                    condition,
+                    then_block,
+                    else_block,
+                    ..
+                } => {
+                    expr(condition, types, ids)?;
+                    block(then_block, types, ids)?;
+                    if let Some(b) = else_block {
+                        block(b, types, ids)?;
+                    }
+                }
+                ast::Stmt::Loop { kind, body, .. } => {
+                    match kind {
+                        ast::LoopKind::Infinite => {}
+                        ast::LoopKind::Repeat(e) | ast::LoopKind::While(e) => expr(e, types, ids)?,
+                        ast::LoopKind::For { iterable, .. } => expr(iterable, types, ids)?,
+                    };
+                    block(body, types, ids)?;
+                }
+                ast::Stmt::Match {
+                    expression, arms, ..
+                } => {
+                    expr(expression, types, ids)?;
+                    for arm in arms {
+                        block(&arm.body, types, ids)?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+    for item in &program.items {
+        if let ast::Item::Function(function) = item {
+            block(&function.body, types, ids)?;
+        }
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone)]
 pub struct IrProgram {
     pub items: Vec<IrItem>,

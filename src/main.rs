@@ -4,6 +4,7 @@ mod codegen;
 mod compiler;
 mod error;
 mod ir;
+mod ir_validate;
 mod language;
 mod lexer;
 mod manifest;
