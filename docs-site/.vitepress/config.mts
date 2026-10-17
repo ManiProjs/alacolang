@@ -12,6 +12,11 @@ export default defineConfig({
     ['link', { rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: '' }],
     ['link', { rel: 'stylesheet', href: 'https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Syne:wght@600;700;800&display=swap' }],
   ],
+  markdown: {
+    // Alaco's syntax is close enough to Rust for useful lexical coloring while
+    // keeping the source examples clearly marked as Alaco with the `aco` fence.
+    languageAlias: { aco: 'rust', alaco: 'rust' },
+  },
   themeConfig: {
     siteTitle: 'Alaco docs',
     nav: [
@@ -31,6 +36,10 @@ export default defineConfig({
         ] },
         { text: 'Learn Alaco', items: [
           { text: 'Language guide', link: '/guide/language' },
+          { text: 'Types & expressions', link: '/guide/language-types' },
+          { text: 'Control flow & data', link: '/guide/language-control-flow' },
+          { text: 'Modules & strings', link: '/guide/language-modules' },
+          { text: 'Projects & runtime', link: '/guide/language-projects' },
           { text: 'Compiler targets', link: '/guide/targets' },
           { text: 'Editor support & LSP', link: '/guide/editor-support' },
         ] },
