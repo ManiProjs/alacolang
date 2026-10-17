@@ -6,24 +6,24 @@ This guide takes you from a source checkout to a running Alaco program.
 
 You need:
 
-- **Rust and Cargo** to build the compiler from this repository.
+- **Rust and Cargo** for the one-time compiler installation from source.
 - **A C++ compiler** supported by your platform for native `build` and `run` commands.
 - **Node.js** only if you want to execute programs transpiled to JavaScript.
 
-Clone the repository and build the compiler:
+Clone the repository and install the `alaco` executable:
 
 ```sh
 git clone https://github.com/ManiProjs/alaco.git
 cd alaco
-cargo build
+cargo install --path .
 ```
 
-Run `cargo run -- doctor` to check the native compiler setup. While developing Alaco itself, `cargo run -- <command>` invokes the compiler from this checkout. After installing the executable, use `alaco <command>` directly.
+Run `alaco doctor` to check the native compiler setup. The `cargo install --path .` step is only for installing the compiler from its source repository; day-to-day commands use the installed `alaco` executable.
 
 ## 2. Create a project
 
 ```sh
-cargo run -- new hello
+alaco new hello
 cd hello
 ```
 
@@ -41,9 +41,9 @@ fn main() {
 ## 3. Check, run, and build
 
 ```sh
-cargo run -- check
-cargo run -- run
-cargo run -- build
+alaco check
+alaco run
+alaco build
 ```
 
 - `check` parses and analyzes source without producing a native executable.
@@ -58,10 +58,10 @@ Try changing `println` to `printl`, then run `check` again. The semantic analyze
 
 ## 5. Transpile to JavaScript
 
-From the Alaco repository, run:
+With `alaco` installed and the Alaco repository available for its example source, run:
 
 ```sh
-cargo run -- transpile examples/javascript.aco --target js --output hello.mjs
+alaco transpile examples/javascript.aco --target js --output hello.mjs
 node hello.mjs
 ```
 

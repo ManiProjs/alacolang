@@ -16,6 +16,7 @@
       <header class="topbar">
         <a class="brand" href="#top" aria-label="Alaco home"><span class="brand-mark">A</span><span>alaco</span></a>
         <nav class="desktop-nav" aria-label="Main navigation"><a href="#language">The language</a><a href="#examples">Examples</a><a href="./docs-site/">Documentation <span aria-hidden="true">↗</span></a></nav>
+        <button class="theme-toggle" type="button" aria-label="Switch to dark mode" title="Switch color theme">◐ <span>Theme</span></button>
         <a class="nav-cta" href="https://github.com/ManiProjs/alaco">View on GitHub <span aria-hidden="true">↗</span></a>
         <button class="menu-toggle" aria-label="Toggle navigation" aria-expanded="false">☰</button>
       </header>
@@ -26,7 +27,7 @@
             <div class="eyebrow"><span class="status-dot"></span> A small language, built with intention</div>
             <h1>Make the language<br />work <span class="underlined">for you.</span></h1>
             <p class="hero-lede">Alaco is an expressive, statically checked programming language with a compiler written in Rust. Write clear code, catch mistakes early, and target native programs or JavaScript.</p>
-            <div class="hero-actions"><a class="button button-dark" href="./docs-site/guide/getting-started.html">Get started <span>→</span></a><a class="text-link" href="https://github.com/ManiProjs/alaco">Explore the source <span>↗</span></a></div>
+            <div class="hero-actions"><a class="button button-dark" href="/alaco/docs-site/guide/getting-started.html">Get started <span>→</span></a><a class="text-link" href="https://github.com/ManiProjs/alaco">Explore the source <span>↗</span></a></div>
             <div class="hero-meta"><span><span class="meta-icon">⌘</span> Open source</span><span><span class="meta-icon">⌁</span> Rust compiler</span><span><span class="meta-icon">↗</span> C++ · JavaScript</span></div>
           </div>
           <div class="code-window" aria-label="Example Alaco program">
@@ -62,16 +63,16 @@
           </div>
         </section>
 
-        <section class="quickstart-band"><div class="wrap quickstart-layout"><div><div class="section-kicker">02 — FIRST STEPS</div><h2>From zero to<br />your first program.</h2><p>Get the compiler running, create a project, and make your first change. The guide walks through the whole loop.</p><a class="button button-light" href="./docs-site/guide/getting-started.html">Start the guide <span>→</span></a></div><div class="terminal-card"><div class="terminal-top"><span class="terminal-dot"></span><span>Terminal</span><button class="copy-command" type="button">Copy commands</button></div><pre><code><span class="terminal-comment"># Build the compiler from source</span>
-cargo build
+        <section class="quickstart-band"><div class="wrap quickstart-layout"><div><div class="section-kicker">02 — FIRST STEPS</div><h2>From zero to<br />your first program.</h2><p>Get the compiler running, create a project, and make your first change. The guide walks through the whole loop.</p><a class="button button-light" href="/alaco/docs-site/guide/getting-started.html">Start the guide <span>→</span></a></div><div class="terminal-card"><div class="terminal-top"><span class="terminal-dot"></span><span>Terminal</span><button class="copy-command" type="button">Copy commands</button></div><pre><code><span class="terminal-comment"># Install the compiler once from its repository</span>
+cargo install --path .
 
-<span class="terminal-comment"># Create and run a new project</span>
-cargo run -- new hello
+<span class="terminal-comment"># Create and run a project</span>
+alaco new hello
 cd hello
-cargo run -- run
+alaco run
 
 <span class="terminal-comment"># Check before you build</span>
-cargo run -- check</code></pre><div class="terminal-note"><span>●</span> Requires Rust and a supported C++ compiler for native builds.</div></div></div></section>
+alaco check</code></pre><div class="terminal-note"><span>●</span> Native builds require a supported C++ compiler.</div></div></div></section>
 
         <section id="examples" class="section wrap examples-section">
           <div class="section-kicker">03 — MADE TO EXPLORE</div><div class="section-heading"><h2>Learn by <span>making.</span></h2><p>Start with a tiny program, then explore modules, configuration, filesystem access, and editor tooling as you grow.</p></div>

@@ -10,7 +10,7 @@ Build the compiler once, then configure your editor to run:
 alaco lsp
 ```
 
-When working from the repository before installing Alaco, use `cargo run -- lsp` (or the absolute path to `target/debug/alaco lsp`).
+If you have built the compiler but have not installed it yet, use the executable directly at `target/debug/alaco lsp` (or `target/release/alaco lsp` for a release build).
 
 ## Editor features
 
