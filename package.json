@@ -1,0 +1,18 @@
+{
+  "name": "alaco-website",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "docs:dev": "vitepress dev docs-site",
+    "docs:build": "vitepress build docs-site",
+    "docs:preview": "vitepress preview docs-site"
+  },
+  "devDependencies": {
+    "vite": "^7.1.0",
+    "vitepress": "^1.6.4"
+  }
+}

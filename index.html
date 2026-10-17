@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#ffffff" />
+    <meta name="description" content="Alaco is a small, statically checked programming language with a Rust-built compiler, native C++ output, and an evolving JavaScript backend." />
+    <title>Alaco — a language for building things</title>
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Syne:wght@600;700;800&display=swap" rel="stylesheet" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="topbar">
+        <a class="brand" href="#top" aria-label="Alaco home"><span class="brand-mark">A</span><span>alaco</span></a>
+        <nav class="desktop-nav" aria-label="Main navigation"><a href="#language">The language</a><a href="#examples">Examples</a><a href="./docs-site/">Documentation <span aria-hidden="true">↗</span></a></nav>
+        <a class="nav-cta" href="https://github.com/ManiProjs/alaco">View on GitHub <span aria-hidden="true">↗</span></a>
+        <button class="menu-toggle" aria-label="Toggle navigation" aria-expanded="false">☰</button>
+      </header>
+
+      <main id="top">
+        <section class="hero wrap">
+          <div class="hero-copy">
+            <div class="eyebrow"><span class="status-dot"></span> A small language, built with intention</div>
+            <h1>Make the language<br />work <span class="underlined">for you.</span></h1>
+            <p class="hero-lede">Alaco is an expressive, statically checked programming language with a compiler written in Rust. Write clear code, catch mistakes early, and target native programs or JavaScript.</p>
+            <div class="hero-actions"><a class="button button-dark" href="./docs-site/guide/getting-started.html">Get started <span>→</span></a><a class="text-link" href="https://github.com/ManiProjs/alaco">Explore the source <span>↗</span></a></div>
+            <div class="hero-meta"><span><span class="meta-icon">⌘</span> Open source</span><span><span class="meta-icon">⌁</span> Rust compiler</span><span><span class="meta-icon">↗</span> C++ · JavaScript</span></div>
+          </div>
+          <div class="code-window" aria-label="Example Alaco program">
+            <div class="window-bar"><div class="window-dots"><i></i><i></i><i></i></div><span>hello.aco</span><span class="file-badge">ALACO</span></div>
+            <pre><code><span class="code-muted">// A little program, from the start.</span>
+<span class="code-purple">fn</span> <span class="code-blue">greet</span>(name: <span class="code-orange">String</span>) {
+    <span class="code-purple">println</span>(<span class="code-green">"Hello, ${name}!"</span>);
+}
+
+<span class="code-purple">fn</span> <span class="code-blue">main</span>() {
+    <span class="code-purple">let</span> language = <span class="code-green">"Alaco"</span>;
+    greet(language);
+
+    <span class="code-purple">let mut</span> count: <span class="code-orange">Int</span> = <span class="code-number">3</span>;
+    <span class="code-purple">loop</span> (repeat count) {
+        <span class="code-purple">println</span>(<span class="code-green">"Keep building."</span>);
+    }
+}</code></pre>
+            <div class="code-footer"><span><span class="footer-check">✓</span> Statically checked</span><span>hello.aco <span class="footer-arrow">↗</span></span></div>
+          </div>
+          <div class="hero-index"><span>01 / INTRODUCTION</span><span>DESIGNED TO BE UNDERSTOOD</span></div>
+        </section>
+
+        <section class="ticker" aria-label="Alaco features"><div class="ticker-inner"><span>Readable by design</span><b>✳</b><span>Static checks</span><b>✳</b><span>Native output</span><b>✳</b><span>JavaScript target</span><b>✳</b><span>Open source</span></div></section>
+
+        <section id="language" class="section wrap">
+          <div class="section-kicker">01 — THE LANGUAGE</div>
+          <div class="section-heading"><h2>Small surface.<br /><span>Real capabilities.</span></h2><p>Alaco aims to keep its syntax approachable while giving you useful tools for everyday programs. Its compiler checks your code before it generates a target.</p></div>
+          <div class="feature-grid">
+            <article class="feature-card"><div class="feature-symbol symbol-lime">✓</div><h3>Catch mistakes early</h3><p>Names and types are analyzed before code generation, with diagnostics designed to point you toward the problem.</p><a href="./docs-site/guide/language.html">How the language works <span>→</span></a></article>
+            <article class="feature-card"><div class="feature-symbol symbol-blue">{ }</div><h3>Keep code readable</h3><p>Functions, structs, local modules, interpolation, fixed-count loops, and match expressions give programs a clear shape.</p><a href="./docs-site/guide/language.html#functions">Explore the syntax <span>→</span></a></article>
+            <article class="feature-card"><div class="feature-symbol symbol-peach">↗</div><h3>Choose your target</h3><p>Build native executables through generated C++, or experiment with the evolving JavaScript ES module backend.</p><a href="./docs-site/guide/targets.html">Read about targets <span>→</span></a></article>
+          </div>
+        </section>
+
+        <section class="quickstart-band"><div class="wrap quickstart-layout"><div><div class="section-kicker">02 — FIRST STEPS</div><h2>From zero to<br />your first program.</h2><p>Get the compiler running, create a project, and make your first change. The guide walks through the whole loop.</p><a class="button button-light" href="./docs-site/guide/getting-started.html">Start the guide <span>→</span></a></div><div class="terminal-card"><div class="terminal-top"><span class="terminal-dot"></span><span>Terminal</span><button class="copy-command" type="button">Copy commands</button></div><pre><code><span class="terminal-comment"># Build the compiler from source</span>
+cargo build
+
+<span class="terminal-comment"># Create and run a new project</span>
+cargo run -- new hello
+cd hello
+cargo run -- run
+
+<span class="terminal-comment"># Check before you build</span>
+cargo run -- check</code></pre><div class="terminal-note"><span>●</span> Requires Rust and a supported C++ compiler for native builds.</div></div></div></section>
+
+        <section id="examples" class="section wrap examples-section">
+          <div class="section-kicker">03 — MADE TO EXPLORE</div><div class="section-heading"><h2>Learn by <span>making.</span></h2><p>Start with a tiny program, then explore modules, configuration, filesystem access, and editor tooling as you grow.</p></div>
+          <div class="example-list"><a href="https://github.com/ManiProjs/alaco/tree/main/examples"><span class="example-number">01</span><span><strong>Language basics</strong><small>Functions, structs, loops, match, and interpolation</small></span><span class="example-tag">CORE</span><span class="example-arrow">↗</span></a><a href="https://github.com/ManiProjs/alaco/tree/main/examples"><span class="example-number">02</span><span><strong>Useful standard library</strong><small>Math, strings, paths, environment, JSON, and TOML</small></span><span class="example-tag">LIBRARY</span><span class="example-arrow">↗</span></a><a href="https://github.com/ManiProjs/alaco/tree/main/editors"><span class="example-number">03</span><span><strong>Editor integration</strong><small>Language Server Protocol, completions, diagnostics, and navigation</small></span><span class="example-tag">TOOLS</span><span class="example-arrow">↗</span></a></div>
+        </section>
+
+        <section class="docs-callout wrap"><div><div class="section-kicker">THE REFERENCE</div><h2>Everything in one place.</h2><p>Syntax, standard library, CLI commands, compiler targets, editor setup, and honest notes on current limitations.</p></div><a class="button button-dark" href="./docs-site/">Read the documentation <span>→</span></a></section>
+      </main>
+
+      <footer class="footer wrap"><a class="brand" href="#top"><span class="brand-mark">A</span><span>alaco</span></a><span>Made for people who like understanding their tools.</span><div><a href="https://github.com/ManiProjs/alaco">GitHub ↗</a><a href="./docs-site/">Docs ↗</a></div><small>© <span id="year"></span> Alaco contributors</small></footer>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
