@@ -26,6 +26,8 @@ export default defineConfig({
           { text: 'Introduction', link: '/' },
           { text: 'Getting started', link: '/guide/getting-started' },
           { text: 'Project workflow', link: '/guide/project-workflow' },
+          { text: 'Testing programs', link: '/guide/testing' },
+          { text: 'Diagnostics & troubleshooting', link: '/guide/diagnostics' },
         ] },
         { text: 'Learn Alaco', items: [
           { text: 'Language guide', link: '/guide/language' },

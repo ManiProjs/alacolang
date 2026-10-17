@@ -14,6 +14,8 @@ Alaco is a small, statically checked programming language implemented in Rust. I
   <a href="./guide/language"><strong>02 · Learn syntax</strong><span>Understand types, functions, control flow, structs, and imports.</span></a>
   <a href="./reference/standard-library"><strong>03 · Use the library</strong><span>Explore the APIs available to Alaco programs.</span></a>
   <a href="./guide/editor-support"><strong>04 · Improve your workflow</strong><span>Connect the language server to your editor.</span></a>
+  <a href="./guide/testing"><strong>05 · Test programs</strong><span>Run focused `.aco` tests and keep regressions visible.</span></a>
+  <a href="./guide/diagnostics"><strong>06 · Troubleshoot</strong><span>Understand compiler stages and diagnose common failures.</span></a>
 </div>
 
 ## At a glance
